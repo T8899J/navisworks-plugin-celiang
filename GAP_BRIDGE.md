@@ -34,7 +34,7 @@ var network = new CableNetwork(pieces, options: new CableNetworkOptions {
 
 GapBridgeEdge 的 Length 为两个 Port 世界坐标的实际距离，并计入总长度。它始终 RequiresReview=true；ReviewReason 包含 gap、横向偏差和竖向偏差。报告中的 GapBridgeCount、GapBridgeLength 分别记录本路径的桥接数量和实际桥接总长。
 
-关闭 VirtualConnector 时，Dijkstra 按 `(GapBridgeEdge 数量, 实际总长度)` 排序，先选 Gap 较少的路径，再在 Gap 数量相同的路径中选长度较短的路径。开启独立的三维 VirtualConnector 后采用新阶段的三项代价，见 [VIRTUAL_CONNECTOR.md](VIRTUAL_CONNECTOR.md)。总长度仍然是实际边长之和。严格模式 `Find(start, finish, false)` 排除 Gap 及其他待复核边。
+V13 在开启或关闭 VirtualConnector 时均按 `(TotalLength, VerticalTravel, VirtualConnectorCount, VirtualConnectorTotalLength, GapBridgeCount)` 排序。实际总长度是第一目标；Gap 数量仅在前四项完全相同时比较。`VerticalTravel` 是实际经过中心折线的每段绝对 Z 变化之和。严格模式 `Find(start, finish, false)` 仍排除 Gap 及其他待复核边；本阶段未放宽任何 Gap 接受条件或容差。成本定义见 [PATH_COST.md](PATH_COST.md)，三维候选生成见 [VIRTUAL_CONNECTOR.md](VIRTUAL_CONNECTOR.md)。
 
 ## 验证
 

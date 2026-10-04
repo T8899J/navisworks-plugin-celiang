@@ -37,12 +37,14 @@ namespace TrayRouteExperiment
         public double From,To,Length;
         public Vec A,B;
         public Vec[] Centerline;
+        public double VerticalTravel { get { return CableDistance.VerticalTravel(Centerline).Metres; } }
         public CableJoin Join;
         public bool RequiresReview;
     }
     public sealed class CableRoute
     {
-        public double Length;
+        public double Length,VerticalTravel;
+        public double TotalLength { get { return Length; } }
         public int GapBridgeCount;
         public double GapBridgeLength;
         public int VirtualConnectorCount;
@@ -374,22 +376,20 @@ namespace TrayRouteExperiment
             var costs=Enumerable.Repeat(PathCost.Infinite,count).ToArray();
             var prior=new CableGraphEdge[count];var visited=new bool[count];var adjacency=Enumerable.Range(0,count).Select(i=>new List<CableGraphEdge>()).ToArray();
             foreach(var edge in graph.Edges){if(!allowCandidates&&edge.RequiresReview)continue;adjacency[edge.From].Add(edge);adjacency[edge.To].Add(edge);}costs[graph.Start]=new PathCost();
-            // Virtual mode uses exactly (connector count, connector length, total physical
-            // length). Legacy callers with virtual search disabled retain GapBridge priority.
-            bool virtualMode=VirtualConnectorMaxDistance>0;
+            // All modes minimize total physical route length before secondary tie-breaks.
             for(int iteration=0;iteration<count;iteration++)
             {
-                int a=-1;for(int i=0;i<count;i++)if(!visited[i]&&(a<0||costs[i].Compare(costs[a],virtualMode)<0))a=i;if(a<0||double.IsInfinity(costs[a].TotalLength)||a==graph.Finish)break;visited[a]=true;
-                foreach(var edge in adjacency[a]){int b=edge.From==a?edge.To:edge.From;if(visited[b])continue;var cost=costs[a].Add(edge);if(cost.Compare(costs[b],virtualMode)<0){costs[b]=cost;prior[b]=edge;}}
+                int a=-1;for(int i=0;i<count;i++)if(!visited[i]&&(a<0||costs[i].Compare(costs[a])<0))a=i;if(a<0||costs[a].IsInfinite||a==graph.Finish)break;visited[a]=true;
+                foreach(var edge in adjacency[a]){int b=edge.From==a?edge.To:edge.From;if(visited[b])continue;var cost=costs[a].Add(edge);if(cost.Compare(costs[b])<0){costs[b]=cost;prior[b]=edge;}}
             }
-            if(double.IsInfinity(costs[graph.Finish].TotalLength))throw new CablePathNotFoundException(DiagnoseConnectivity(start,finish));
+            if(costs[graph.Finish].IsInfinite)throw new CablePathNotFoundException(DiagnoseConnectivity(start,finish));
             var steps=new List<CableStep>();int current=graph.Finish;
             while(current!=graph.Start)
             {
                 var e=prior[current];bool forward=e.To==current;steps.Add(new CableStep{Piece=e.Piece,Edge=e.InternalEdge,EdgeId=e.EdgeId,Kind=e.Kind,From=forward?e.FromStation:e.ToStation,To=forward?e.ToStation:e.FromStation,A=graph.Nodes[forward?e.From:e.To].Point,B=graph.Nodes[forward?e.To:e.From].Point,Centerline=forward?e.Centerline.ToArray():e.Centerline.Reverse().ToArray(),Length=e.Length,Join=e.Join,RequiresReview=e.RequiresReview,ReviewReason=e.ReviewReason});current=forward?e.From:e.To;
             }
             steps.Reverse();var ids=steps.Where(s=>s.Piece>=0).Select(s=>s.Piece).Concat(new[]{start.Piece,finish.Piece}).Distinct().ToArray();var internals=steps.Where(s=>s.Kind==CableEdgeKind.InternalEdge).ToList();
-            return new CableRoute{Length=costs[graph.Finish].TotalLength,GapBridgeCount=costs[graph.Finish].GapCount,GapBridgeLength=steps.Where(s=>s.Kind==CableEdgeKind.GapBridgeEdge).Sum(s=>s.Length),VirtualConnectorCount=costs[graph.Finish].VirtualCount,VirtualConnectorTotalLength=costs[graph.Finish].VirtualLength,Steps=steps,Pieces=ids,RequiresReview=steps.Any(s=>s.RequiresReview),InternalEdges=internals,ReviewConnections=steps.Where(s=>s.Join!=null&&s.RequiresReview).Select(s=>s.Join).Distinct().ToList(),FittingContributions=internals.Where(s=>IsFitting(Pieces[s.Piece].Shape)).GroupBy(s=>s.Piece).Select(group=>new CableFittingContribution{Piece=group.Key,Name=Pieces[group.Key].Shape.Name,Kind=Pieces[group.Key].Shape.Kind,Length=group.Sum(s=>s.Length),EdgeIds=group.Select(s=>s.EdgeId).Distinct().ToArray()}).ToList()};
+            return new CableRoute{Length=costs[graph.Finish].TotalLength.Metres,VerticalTravel=costs[graph.Finish].VerticalTravel.Metres,GapBridgeCount=costs[graph.Finish].GapCount,GapBridgeLength=steps.Where(s=>s.Kind==CableEdgeKind.GapBridgeEdge).Sum(s=>s.Length),VirtualConnectorCount=costs[graph.Finish].VirtualCount,VirtualConnectorTotalLength=costs[graph.Finish].VirtualLength.Metres,Steps=steps,Pieces=ids,RequiresReview=steps.Any(s=>s.RequiresReview),InternalEdges=internals,ReviewConnections=steps.Where(s=>s.Join!=null&&s.RequiresReview).Select(s=>s.Join).Distinct().ToList(),FittingContributions=internals.Where(s=>IsFitting(Pieces[s.Piece].Shape)).GroupBy(s=>s.Piece).Select(group=>new CableFittingContribution{Piece=group.Key,Name=Pieces[group.Key].Shape.Name,Kind=Pieces[group.Key].Shape.Kind,Length=group.Sum(s=>s.Length),EdgeIds=group.Select(s=>s.EdgeId).Distinct().ToArray()}).ToList()};
         }
         static bool IsFitting(Part p){string kind=(p.Kind??"").ToLowerInvariant();return kind!="straight"&&kind!="slope"&&kind!="slopestraight";}
     }

@@ -154,31 +154,28 @@ namespace TrayRouteExperiment
             }
         }
 
-        struct PathCost
+        internal struct PathCost
         {
             public int VirtualCount,GapCount;
-            public double VirtualLength,TotalLength;
-            public static PathCost Infinite { get { return new PathCost{VirtualCount=int.MaxValue,GapCount=int.MaxValue,VirtualLength=double.PositiveInfinity,TotalLength=double.PositiveInfinity}; } }
+            public CableDistance TotalLength,VerticalTravel,VirtualLength;
+            public bool IsInfinite;
+            public static PathCost Infinite { get { return new PathCost{IsInfinite=true}; } }
             public PathCost Add(CableGraphEdge edge)
             {
                 bool virtualEdge=edge.Kind==CableEdgeKind.VirtualConnectorEdge;
-                return new PathCost{VirtualCount=VirtualCount+(virtualEdge?1:0),VirtualLength=VirtualLength+(virtualEdge?edge.Length:0),
-                    GapCount=GapCount+(edge.Kind==CableEdgeKind.GapBridgeEdge?1:0),TotalLength=TotalLength+edge.Length};
+                var length=CableDistance.FromMetres(edge.Length);
+                return new PathCost{TotalLength=TotalLength+length,VerticalTravel=VerticalTravel+CableDistance.VerticalTravel(edge.Centerline),
+                    VirtualCount=VirtualCount+(virtualEdge?1:0),VirtualLength=VirtualLength+(virtualEdge?length:new CableDistance()),
+                    GapCount=GapCount+(edge.Kind==CableEdgeKind.GapBridgeEdge?1:0),IsInfinite=IsInfinite};
             }
-            public int Compare(PathCost other,bool virtualMode)
+            public int Compare(PathCost other)
             {
-                if(virtualMode)
-                {
-                    int comparison=VirtualCount.CompareTo(other.VirtualCount);if(comparison!=0)return comparison;
-                    comparison=VirtualLength.CompareTo(other.VirtualLength);if(comparison!=0)return comparison;
-                }
-                else
-                {
-                    // Keep the strict GapBridge-only API mode backward compatible when the
-                    // independent VirtualConnector feature is disabled.
-                    int comparison=GapCount.CompareTo(other.GapCount);if(comparison!=0)return comparison;
-                }
-                return TotalLength.CompareTo(other.TotalLength);
+                if(IsInfinite!=other.IsInfinite)return IsInfinite?1:-1;if(IsInfinite)return 0;
+                int comparison=TotalLength.CompareTo(other.TotalLength);if(comparison!=0)return comparison;
+                comparison=VerticalTravel.CompareTo(other.VerticalTravel);if(comparison!=0)return comparison;
+                comparison=VirtualCount.CompareTo(other.VirtualCount);if(comparison!=0)return comparison;
+                comparison=VirtualLength.CompareTo(other.VirtualLength);if(comparison!=0)return comparison;
+                return GapCount.CompareTo(other.GapCount);
             }
         }
     }

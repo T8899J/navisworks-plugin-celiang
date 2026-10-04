@@ -54,6 +54,7 @@ namespace TrayRouteExperiment
         public CableEdgeKind Kind;
         public double Length, FromStation, ToStation;
         public Vec[] Centerline;
+        public double VerticalTravel { get { return CableDistance.VerticalTravel(Centerline).Metres; } }
         public bool RequiresReview;
         public string ReviewReason;
         public CableJoin Join;

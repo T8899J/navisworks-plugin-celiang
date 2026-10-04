@@ -10,7 +10,7 @@ using NavApp = Autodesk.Navisworks.Api.Application;
 
 namespace TrayRouteExperiment
 {
-    [Plugin("CableGraphProbeV12", "JPPM")]
+    [Plugin("CableGraphProbeV13", "JPPM")]
     public sealed class CableHostProbe : AddInPlugin
     {
         static Vec Point(string value)
@@ -29,7 +29,7 @@ namespace TrayRouteExperiment
         public override int Execute(params string[] args)
         {
             if(args.Length==0)return 1;
-            HostNetwork network=null;CableRoute route=null;CableLocation start=null,finish=null;CableConnectivityDiagnostics connectivity=null;
+            HostNetwork network=null;CableRoute route=null,reverseResult=null;bool? reverseCostConsistent=null;CableLocation start=null,finish=null;CableConnectivityDiagnostics connectivity=null;
             object visibility=null;string error=null;var document=NavApp.ActiveDocument;
             try
             {
@@ -39,13 +39,20 @@ namespace TrayRouteExperiment
                     start=Location(network,args[1],args[3]);finish=Location(network,args[2],args[4]);
                     try{route=network.Graph.Find(start,finish);}
                     catch(CablePathNotFoundException failure){error=failure.Message;connectivity=failure.Diagnostics;}
+                    if(route!=null)
+                    {
+                        reverseResult=network.Graph.Find(finish,start);
+                        reverseCostConsistent=route.Length==reverseResult.Length&&route.VerticalTravel==reverseResult.VerticalTravel&&
+                            route.VirtualConnectorCount==reverseResult.VirtualConnectorCount&&route.VirtualConnectorTotalLength==reverseResult.VirtualConnectorTotalLength&&route.GapBridgeCount==reverseResult.GapBridgeCount;
+                        if(reverseCostConsistent!=true)throw new InvalidOperationException("Forward/reverse route costs differ; inspect both cost tuples.");
+                    }
                     if(args.Contains("diagnose-physical")||args.Contains("--diagnose-physical"))connectivity=network.Graph.DiagnoseConnectivity(start,finish);
                     if(args.Contains("check-visibility")||args.Contains("--check-visibility"))visibility=CableVisibilityChecks.Run(document,args);
                 }
             }
             catch(Exception failure){error=failure.ToString();}
             var report=new Dictionary<string,object>{{"success",error==null},{"model",document.FileName},{"start",start},{"finish",finish},
-                {"result",route},{"error",error},{"connectivityDiagnostics",connectivity},{"visibilityChecks",visibility},{"probeArguments",args}};
+                {"result",route},{"reverseResult",reverseResult},{"reverseCostConsistent",reverseCostConsistent},{"pathCostOrder",new[]{"TotalLength","VerticalTravel","VirtualConnectorCount","VirtualConnectorTotalLength","GapBridgeCount"}},{"error",error},{"connectivityDiagnostics",connectivity},{"visibilityChecks",visibility},{"probeArguments",args}};
             if(network!=null)
             {
                 var graph=network.Graph;

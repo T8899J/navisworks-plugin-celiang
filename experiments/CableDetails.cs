@@ -129,6 +129,7 @@ namespace TrayRouteExperiment
             var directory = Path.GetDirectoryName(Path.GetFullPath(reportPath)); Directory.CreateDirectory(directory);
             File.WriteAllText(reportPath, new JavaScriptSerializer { MaxJsonLength = 50000000 }.Serialize(new {
                 model = doc.FileName, definition = "Port / Junction / Edge graph; physical components first; 3D review-only VirtualConnector",
+                pathCostOrder = new[]{"TotalLength","VerticalTravel","VirtualConnectorCount","VirtualConnectorTotalLength","GapBridgeCount"},
                 start, finish, result = route, picked3DPoints = pickedPoints, error,
                 recognized = network.Recognized, rejected = network.Rejected, incomplete = network.Incomplete,
                 scan = new { network.ScanNodeCount, network.ScanCandidateCount, network.ScanElapsedSeconds },

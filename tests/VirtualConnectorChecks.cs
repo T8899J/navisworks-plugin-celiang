@@ -21,7 +21,9 @@ static partial class PortGraphChecks
         var route=network.Find(start,finish);var reverse=network.Find(finish,start);
         Near(route.Length,length,name+" counts actual XYZ travel");Near(reverse.Length,length,name+" reverse length is identical");
         Near(route.Steps.Sum(s=>s.Length),route.Length,name+" physical total equals traversed edges");
-        Near(reverse.VirtualConnectorTotalLength,route.VirtualConnectorTotalLength,name+" reverse connector contribution is identical");
+        Check(reverse.TotalLength==route.TotalLength,name+" forward/reverse total length is exactly equal");
+        Check(reverse.VirtualConnectorTotalLength==route.VirtualConnectorTotalLength,name+" reverse connector contribution is exactly equal");
+        Check(reverse.VerticalTravel==route.VerticalTravel,name+" reverse vertical travel is exactly equal");Check(reverse.VirtualConnectorCount==route.VirtualConnectorCount,name+" reverse virtual count is identical");
         Check(route.RequiresReview&&route.VirtualConnectorCount>0,name+" is always a review route");
         Reject(()=>network.Find(start,finish,false),name+" is excluded from strict mode");
     }
@@ -116,9 +118,9 @@ static partial class PortGraphChecks
         n=VirtualNet(detour,Line("real-A",new Vec(),new Vec(1,0,0)),Line("real-B",new Vec(2,0,0),new Vec(3,0,0)),
             Line("outside-component",new Vec(1,.3,.2),new Vec(2,.3,.2)));
         Check(VirtualEdges(n).Length==2,"different-component connectors can coexist with a real detour without linking within the real component");
-        route=n.Find(n.AtPort(1,1),n.AtPort(2,0));Near(route.Length,17,"zero virtual connectors beats a much shorter two-connector bypass");
-        Check(route.VirtualConnectorCount==0&&!route.RequiresReview,"existing physical path wins even when external virtual bypass edges exist");
-        Near(n.Find(n.AtPort(2,0),n.AtPort(1,1)).Length,17,"confirmed real path preference is reversible");
+        route=n.Find(n.AtPort(1,1),n.AtPort(2,0));Near(route.Length,1+2*Math.Sqrt(.13),"shorter total route wins over a long confirmed physical detour");
+        Check(route.VirtualConnectorCount==2&&route.RequiresReview,"shorter external bypass remains explicitly reviewable with both virtual connectors");
+        CostReverse(n,n.AtPort(1,1),n.AtPort(2,0),route,"shorter reviewed bypass");
 
         a=Line("ambiguous-source",new Vec(-2,0,0),new Vec());
         b=Line("near-candidate",new Vec(.3,0,.2),new Vec(2.3,0,.2));var c=Line("far-candidate",new Vec(.4,0,-.2),new Vec(2.4,0,-.2));
@@ -167,21 +169,21 @@ static partial class PortGraphChecks
             Line("lower-A",new Vec(),new Vec(1,0,0)),Line("lower-B",new Vec(1.4,0,.2),new Vec(3,0,.2)),
             Line("upper-A",new Vec(0,4,0),new Vec(1,4,0)),Line("upper-B",new Vec(equalLength?1.4:1.3,4,.2),new Vec(3,4,.2)));
         var n=alternatives(.5,false);Check(VirtualEdges(n).Length==2,"virtual cost fixture has two unique alternative connectors");
-        var route=n.Find(n.AtPort(0,2),n.AtPort(1,2));Near(route.VirtualConnectorTotalLength,Math.Sqrt(.13),"equal connector counts prefer less virtual distance before physical travel");
-        Check(route.Pieces.Contains(4)&&route.Length>10,"shorter virtual length wins even when its physical route is longer");
-        Near(n.Find(n.AtPort(1,2),n.AtPort(0,2)).Length,route.Length,"virtual distance preference is reversible");
+        var route=n.Find(n.AtPort(0,2),n.AtPort(1,2));Near(route.VirtualConnectorTotalLength,Math.Sqrt(.2),"total length wins even when the selected connector is longer");
+        Check(route.Pieces.Contains(2)&&!route.Pieces.Contains(4),"shorter actual lower route wins over a longer route with a shorter virtual connector");Near(route.Length,7.6+Math.Sqrt(.2),"selected route reports its actual shorter total");
+        CostReverse(n,n.AtPort(0,2),n.AtPort(1,2),route,"total route length preference");
         n=alternatives(.5,true);route=n.Find(n.AtPort(0,2),n.AtPort(1,2));
-        Check(route.Pieces.Contains(2)&&!route.Pieces.Contains(4),"equal connector count and connector length choose shorter total physical length");
-        Near(route.Length,7.6+Math.Sqrt(.2),"third cost term reports actual internal plus connector travel");
+        Check(route.Pieces.Contains(2)&&!route.Pieces.Contains(4),"total route length chooses the shorter physical path when connector contributions are equal");
+        Near(route.Length,7.6+Math.Sqrt(.2),"first cost term reports actual internal plus connector travel");
 
         n=CostNetwork(ShiftVirtualHub("count-left",0,3.5,false,0),ShiftVirtualHub("count-right",3,3.5,true,.2),
             Line("one-A",new Vec(),new Vec(1,0,0)),Line("one-B",new Vec(1.4,0,.2),new Vec(3,0,.2)),
             Line("two-A",new Vec(0,4,0),new Vec(.6,4,0)),Line("two-middle",new Vec(.7,4,.1),new Vec(2,4,.1)),Line("two-B",new Vec(2.1,4,.2),new Vec(3,4,.2)));
         Check(VirtualEdges(n).Length==3,"connector count fixture offers one connector and two-connector alternatives");
-        route=n.Find(n.AtPort(0,2),n.AtPort(1,2));Check(route.VirtualConnectorCount==1&&route.Pieces.Contains(2),"fewer VirtualConnectors wins before virtual or total physical length");
-        Near(route.VirtualConnectorTotalLength,Math.Sqrt(.2),"one longer connector is preferred to two shorter connectors");
-        Near(route.Length,13.6+Math.Sqrt(.2),"connector priority adds no artificial distance penalty");
+        route=n.Find(n.AtPort(0,2),n.AtPort(1,2));Check(route.VirtualConnectorCount==2&&route.Pieces.Contains(4),"shorter total route wins despite using two virtual connectors");
+        Near(route.VirtualConnectorTotalLength,2*Math.Sqrt(.02),"both selected virtual connectors contribute their real distance");
+        Near(route.Length,7.8+2*Math.Sqrt(.02),"total length priority adds no artificial distance penalty");
         Near(route.Steps.Sum(s=>s.Length),route.Length,"lexicographic route still sums real physical lengths");
-        Near(n.Find(n.AtPort(1,2),n.AtPort(0,2)).Length,route.Length,"connector count preference is reversible");
+        CostReverse(n,n.AtPort(0,2),n.AtPort(1,2),route,"shorter two-connector route");
     }
 }

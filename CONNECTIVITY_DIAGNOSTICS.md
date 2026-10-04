@@ -2,6 +2,8 @@
 
 本阶段保持现有 Port Graph、2mm PhysicalTolerance、严格 GapBridge 和配件重建规则，诊断真实模型断图；不增加桥架类型、主路优先、K-shortest 或工程规则。
 
+本文保留 V12 的诊断行为和历史验证记录。当前 V13 继续使用这些拓扑与候选生成规则，仅替换寻路成本；现用成本以 [PATH_COST.md](PATH_COST.md) 为准。
+
 ## 建图和显示状态
 
 `HostNetwork.Discover`、`VisibleGeometry` 不读取 `IsHidden` 决定入图。Maintenance Volume 及其子树仍排除；显示隔离只影响渲染，不改变几何识别和连通性。原有 6000 候选、60 秒扫描、120 秒提取、2000 个已识别构件上限仍保留；`incomplete=true` 的报告不能当成完整模型验收。
@@ -10,7 +12,7 @@
 
 当前配置 `VirtualConnectorExperimentalTopN=true`、`VirtualConnectorTopN=5`、`VirtualConnectorMaxDistance=0.5` 米。真实连接建立后先计算 Physical Connected Components，只有跨分量的自由 Port 才生成虚拟候选；Port-to-Port 与 Port-to-Segment 一起按世界 XYZ 距离排名。保留 Top-N 的全部候选，不因候选数超过一而全部拒绝。
 
-全部虚拟连接为 `Candidate`、`RequiresReview=true`、`Confirmed=false`。路径代价仍按虚拟连接数量、虚拟连接总长、路线实际总长排序。找到后显示“候选路径，需要复核”；长度包含虚拟连接的三维欧氏距离，不等于施工可通行性已确认。
+全部虚拟连接为 `Candidate`、`RequiresReview=true`、`Confirmed=false`。V12 原成本先比较虚拟连接数量和虚拟连接总长；V13 已统一替换为 `(TotalLength, VerticalTravel, VirtualConnectorCount, VirtualConnectorTotalLength, GapBridgeCount)`。找到后仍显示“候选路径，需要复核”；长度包含虚拟连接的三维欧氏距离，不等于施工可通行性已确认。严格模式继续排除待复核边。
 
 ## 找不到路径时
 
@@ -30,6 +32,8 @@
 
 ## 可复现验证
 
+以下命令可复验保留的 V12 诊断行为；构建脚本和宿主探针当前使用 V13。下文列出的测试数量及真实模型结果是 V12 历史记录，不代表 V13 已重复完成这些验证。
+
 ```powershell
 dotnet run --project tests\CoreChecks.csproj
 dotnet run --project tests\PortGraphChecks.csproj -- artifacts\v12-connectivity
@@ -45,7 +49,7 @@ V12 自动验证：31 项共享几何检查、381 项端口图检查，包含全
 
 GUI 验证：独立断截 IFC 中默认红线为 0.838153m，表格第二行定位后为 2.015564m，红线随行切换。该案例全部候选均为 DiagnosticOnly，未确认连接。
 
-## 真实模型重放（2026-10-04）
+## V12 真实模型重放记录（2026-10-04）
 
 使用现有失败报告保存的 ModelItem ID 和三维起终点，在独立只读宿主重放：
 

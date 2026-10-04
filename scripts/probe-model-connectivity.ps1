@@ -11,13 +11,13 @@ $culture = [Globalization.CultureInfo]::InvariantCulture
 function Format-Point($point) { return 'xyz:' + ((([double]$point.X).ToString('R',$culture),([double]$point.Y).ToString('R',$culture),([double]$point.Z).ToString('R',$culture)) -join ',') }
 $startId = $saved.recognized[$saved.start.Piece].ModelItemId
 $finishId = $saved.recognized[$saved.finish.Piece].ModelItemId
-$assembly = Join-Path $root 'experiments\bin\CablePathV12\JiePinPai.CablePathExperimentV12.dll'
+$assembly = Join-Path $root 'experiments\bin\CablePathV13\JiePinPai.CablePathExperimentV13.dll'
 $Model = (Resolve-Path -LiteralPath $Model).Path
 $Report = [IO.Path]::GetFullPath($Report)
 $startPoint = Format-Point $saved.start.Point
 $finishPoint = Format-Point $saved.finish.Point
 foreach ($value in @($assembly,$Model,$Report,$startId,$finishId,$startPoint,$finishPoint)) { if ($value.Contains('"')) { throw 'Embedded quotes are not supported.' } }
-$arguments = '-HideGui -AddPluginAssembly "' + $assembly + '" -OpenFile "' + $Model + '" -ExecuteAddInPlugin CableGraphProbeV12.JPPM "' + $Report + '" "' + $startId + '" "' + $finishId + '" "' + $startPoint + '" "' + $finishPoint + '" "diagnose-physical" -Exit'
+$arguments = '-HideGui -AddPluginAssembly "' + $assembly + '" -OpenFile "' + $Model + '" -ExecuteAddInPlugin CableGraphProbeV13.JPPM "' + $Report + '" "' + $startId + '" "' + $finishId + '" "' + $startPoint + '" "' + $finishPoint + '" "diagnose-physical" -Exit'
 # Open a read-only copy in a separate host; never alter the user's running document or save the model.
 $process = Start-Process -FilePath (Join-Path $NavisworksPath 'Roamer.exe') -ArgumentList $arguments -WorkingDirectory $root -WindowStyle Hidden -PassThru
 Write-Host "MODEL DIAGNOSTIC HOST PID: $($process.Id)"
@@ -26,7 +26,23 @@ if (-not $process.WaitForExit(300000)) { throw "Diagnostic host has not exited (
 if (-not (Test-Path -LiteralPath $Report)) { throw "No report was written; host exit code $($process.ExitCode)." }
 $result = Get-Content -LiteralPath $Report -Raw -Encoding UTF8 | ConvertFrom-Json
 Write-Host ('Recognized: {0}; Rejected: {1}; Physical components: {2}; Incomplete: {3}' -f $result.recognized.Count,$result.rejected.Count,$result.physicalComponentCount,$result.incomplete)
-if ($result.result) { Write-Host ('Candidate route: {0:F6} m; {1} VirtualConnectors; RequiresReview={2}' -f $result.result.Length,$result.result.VirtualConnectorCount,$result.result.RequiresReview) }
+if ($result.result) {
+    if (-not $result.success) { throw "Route probe failed: $($result.error)" }
+    if ($result.reverseCostConsistent -ne $true -or -not $result.reverseResult) { throw 'Forward/reverse route cost consistency was not verified.' }
+    if (($result.pathCostOrder -join ',') -ne 'TotalLength,VerticalTravel,VirtualConnectorCount,VirtualConnectorTotalLength,GapBridgeCount') { throw 'Host does not use the V13 route objective.' }
+    foreach ($metric in @('Length','VerticalTravel','VirtualConnectorCount','VirtualConnectorTotalLength','GapBridgeCount')) {
+        if ($result.result.$metric -ne $result.reverseResult.$metric) { throw "Forward/reverse $metric differs." }
+    }
+    $routeVertical = 0.0
+    foreach ($step in $result.result.Steps) {
+        $stepVertical = 0.0
+        for ($pointIndex=1; $pointIndex -lt $step.Centerline.Count; $pointIndex++) { $stepVertical += [Math]::Abs($step.Centerline[$pointIndex].Z-$step.Centerline[$pointIndex-1].Z) }
+        if ([Math]::Abs($step.VerticalTravel-$stepVertical) -gt 1e-12) { throw 'Edge VerticalTravel does not include its complete polyline.' }
+        $routeVertical += $stepVertical
+    }
+    if ([Math]::Abs($result.result.VerticalTravel-$routeVertical) -gt 1e-10) { throw 'Route VerticalTravel differs from its traversed polylines.' }
+    Write-Host ('Candidate route: {0:F6} m; VerticalTravel={1:F6} m; {2} VirtualConnectors; RequiresReview={3}; forward/reverse exactly consistent' -f $result.result.Length,$result.result.VerticalTravel,$result.result.VirtualConnectorCount,$result.result.RequiresReview)
+}
 if ($result.connectivityDiagnostics) { Write-Host ('Start component: {0}; Finish component: {1}; Breakpoint candidates: {2}' -f $result.connectivityDiagnostics.StartPhysicalComponent,$result.connectivityDiagnostics.FinishPhysicalComponent,$result.connectivityDiagnostics.Candidates.Count) }
 if ($result.error) { Write-Host ('MODEL DIAGNOSTIC: ' + $result.error) }
 $result.rejectionSummary | Format-Table -AutoSize

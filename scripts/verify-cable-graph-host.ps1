@@ -9,12 +9,12 @@ if (-not $Report) { $Report = Join-Path $root ('artifacts\port-graph-host-' + [D
 $fixture = Get-Content -LiteralPath $Manifest -Raw -Encoding UTF8 | ConvertFrom-Json
 $culture = [Globalization.CultureInfo]::InvariantCulture
 function Format-Point($p) { return 'xyz:' + ((([double]$p.X).ToString('R', $culture), ([double]$p.Y).ToString('R', $culture), ([double]$p.Z).ToString('R', $culture)) -join ',') }
-$assembly = Join-Path $root 'experiments\bin\CablePathV12\JiePinPai.CablePathExperimentV12.dll'
+$assembly = Join-Path $root 'experiments\bin\CablePathV13\JiePinPai.CablePathExperimentV13.dll'
 foreach ($path in @($assembly, $Model)) { if (-not (Test-Path -LiteralPath $path)) { throw "Missing input: $path" } }
 $values = @($assembly, $Model, $Report, $fixture.startName, $fixture.finishName, (Format-Point $fixture.start), (Format-Point $fixture.finish))
 if ($values | Where-Object { $_.Contains('"') }) { throw 'Embedded quotes are not supported in test paths or names.' }
 $probeFlags = if ($VerifyVisibility) { ' "check-visibility"' } else { '' }
-$arguments = '-HideGui -AddPluginAssembly "' + $assembly + '" -OpenFile "' + $Model + '" -ExecuteAddInPlugin CableGraphProbeV12.JPPM "' + $Report + '" "' + $fixture.startName + '" "' + $fixture.finishName + '" "' + (Format-Point $fixture.start) + '" "' + (Format-Point $fixture.finish) + '"' + $probeFlags + ' -Exit'
+$arguments = '-HideGui -AddPluginAssembly "' + $assembly + '" -OpenFile "' + $Model + '" -ExecuteAddInPlugin CableGraphProbeV13.JPPM "' + $Report + '" "' + $fixture.startName + '" "' + $fixture.finishName + '" "' + (Format-Point $fixture.start) + '" "' + (Format-Point $fixture.finish) + '"' + $probeFlags + ' -Exit'
 # A separate test process loads only the generated fixture. Existing user documents are untouched.
 $process = Start-Process -FilePath (Join-Path $NavisworksPath 'Roamer.exe') -ArgumentList $arguments -WorkingDirectory $root -WindowStyle Hidden -PassThru
 Write-Host "TEST HOST PID: $($process.Id)"
@@ -38,6 +38,22 @@ if ($fixture.expectedFailure) {
     return
 }
 if (-not $result.success) { throw "Host reconstruction failed: $($result.error). Inspect rejected entries in $Report" }
+if ($result.reverseCostConsistent -ne $true -or -not $result.reverseResult) { throw 'Forward/reverse route cost consistency was not verified.' }
+if (($result.pathCostOrder -join ',') -ne 'TotalLength,VerticalTravel,VirtualConnectorCount,VirtualConnectorTotalLength,GapBridgeCount') { throw 'Host does not use the V13 route objective.' }
+foreach ($metric in @('Length','VerticalTravel','VirtualConnectorCount','VirtualConnectorTotalLength','GapBridgeCount')) {
+    if ($result.result.$metric -ne $result.reverseResult.$metric) { throw "Forward/reverse $metric differs." }
+}
+# Independently sum every Z movement, including intermediate bends and the actual sliced path.
+$routeVertical = 0.0
+foreach ($step in $result.result.Steps) {
+    $stepVertical = 0.0
+    for ($pointIndex=1; $pointIndex -lt $step.Centerline.Count; $pointIndex++) {
+        $stepVertical += [Math]::Abs($step.Centerline[$pointIndex].Z-$step.Centerline[$pointIndex-1].Z)
+    }
+    if ([Math]::Abs($step.VerticalTravel-$stepVertical) -gt 1e-12) { throw 'Edge VerticalTravel does not include its complete polyline.' }
+    $routeVertical += $stepVertical
+}
+if ([Math]::Abs($result.result.VerticalTravel-$routeVertical) -gt 1e-10) { throw 'Route VerticalTravel differs from its traversed polylines.' }
 if ($VerifyVisibility) {
     $visibility=$result.visibilityChecks
     if (-not $visibility.passed -or -not $visibility.exact -or $visibility.maintenanceVolumes -lt 1 -or $visibility.maintenanceGeometry -lt 1 -or -not $visibility.maintenanceExcluded) { throw 'Native visibility or Maintenance Volume verification is missing.' }
@@ -97,3 +113,4 @@ for ($i=0; $i -lt $fixture.items.Count; $i++) {
 }
 Write-Host ('PASS: {0:F9} m; {1} parts; ideal difference {2:F9} m; physical connection gaps {3:F9} m; {4} gap bridges totaling {5:F9} m.' -f $result.result.Length, $result.result.Pieces.Count, $errorMetres, $connectionLength, $gapSteps.Count, $gapLength)
 Write-Host ('VIRTUAL: {0} connectors totaling {1:F9} m.' -f $virtualSteps.Count, $virtualLength)
+Write-Host ('COST: total {0:F9} m; vertical travel {1:F9} m; forward/reverse exactly consistent.' -f $result.result.Length,$result.result.VerticalTravel)

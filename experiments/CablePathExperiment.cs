@@ -19,7 +19,7 @@ using View=Autodesk.Navisworks.Api.View;
 
 namespace TrayRouteExperiment
 {
-    [Plugin("CablePathExperimentV12","JPPM",DisplayName="电缆路径实验",ToolTip="从分支到主路，按点击位置计算路径")]
+    [Plugin("CablePathExperimentV13","JPPM",DisplayName="电缆路径实验",ToolTip="从分支到主路，按点击位置计算路径")]
     [AddInPlugin(AddInLocation.AddIn)]
     public sealed class CableEntry:AddInPlugin
     {
@@ -32,7 +32,7 @@ namespace TrayRouteExperiment
             else if(args.Length>=3)form.Demo(args[0],args[1],args[2]);return 0;
         }
     }
-    [Plugin("CablePointPickerV12","JPPM")]
+    [Plugin("CablePointPickerV13","JPPM")]
     public sealed class CablePicker:ToolPlugin
     {
         internal static CableForm Target;
@@ -47,7 +47,7 @@ namespace TrayRouteExperiment
         public override bool KeyDown(View view,KeyModifiers modifiers,ushort key,double timeOffset)
         {if(key!=27||Target==null)return false;var f=Target;f.BeginInvoke(new Action(f.CancelPick));return true;}
     }
-    [Plugin("CablePathOverlayV12","JPPM")]
+    [Plugin("CablePathOverlayV13","JPPM")]
     public sealed class CableOverlay:RenderPlugin
     {
         internal static Document Document;
@@ -91,7 +91,7 @@ namespace TrayRouteExperiment
         string reportPath;int pickedPoints;
         public CableForm()
         {
-            Text="电缆路径 V12（端口图实验）";ClientSize=new Size(460,338);Font=new Font("Microsoft YaHei UI",10);AutoScaleMode=AutoScaleMode.Dpi;AutoScaleDimensions=new SizeF(96,96);
+            Text="电缆路径 V13（端口图实验）";ClientSize=new Size(460,338);Font=new Font("Microsoft YaHei UI",10);AutoScaleMode=AutoScaleMode.Dpi;AutoScaleDimensions=new SizeF(96,96);
             BackColor=UiColor.FromArgb(246,247,249);FormBorderStyle=FormBorderStyle.FixedSingle;MaximizeBox=false;StartPosition=FormStartPosition.Manual;
             var screen=Screen.PrimaryScreen.WorkingArea;Location=new System.Drawing.Point(screen.Left+80,screen.Top+200);
             caption.ForeColor=hint.ForeColor=UiColor.FromArgb(100,116,139);number.Font=resultFont;number.ForeColor=UiColor.FromArgb(15,23,42);
@@ -131,7 +131,7 @@ namespace TrayRouteExperiment
         {
             Remember();if(!first&&start==null)throw new InvalidOperationException("请先选择起点");
             CancelPick();pickingStart=first;priorTool=doc.Tool.Value;priorCustom=doc.Tool.CustomToolPluginId;
-            CablePicker.Target=this;var record=(ToolPluginRecord)NavApp.Plugins.FindPlugin("CablePointPickerV12.JPPM");doc.Tool.SetCustomToolPlugin(record.LoadPlugin());
+            CablePicker.Target=this;var record=(ToolPluginRecord)NavApp.Plugins.FindPlugin("CablePointPickerV13.JPPM");doc.Tool.SetCustomToolPlugin(record.LoadPlugin());
             caption.Text=first?"请在桥架上点击起点":"请在桥架上点击终点";hint.Text="Esc 取消选择";number.Text="—";
         }
         public void CancelPick()
@@ -157,7 +157,7 @@ namespace TrayRouteExperiment
         void SetOverlay()
         {
             CableOverlay.Document=doc;CableOverlay.Root=originalRoot;CableOverlay.Scale=UnitConversion.ScaleFactor(doc.Units,Units.Meters);CableOverlay.Start=start==null?(Vec?)null:start.Point;CableOverlay.End=finish==null?(Vec?)null:finish.Point;
-            ((RenderPluginRecord)NavApp.Plugins.FindPlugin("CablePathOverlayV12.JPPM")).LoadPlugin();doc.ActiveView.RequestDelayedRedraw(ViewRedrawRequests.All);
+            ((RenderPluginRecord)NavApp.Plugins.FindPlugin("CablePathOverlayV13.JPPM")).LoadPlugin();doc.ActiveView.RequestDelayedRedraw(ViewRedrawRequests.All);
         }
         public void Demo(string report,string branchName,string mainName)
         {

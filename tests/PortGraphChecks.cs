@@ -187,7 +187,7 @@ static partial class PortGraphChecks
         Check(route.InternalEdges.Count==8,"tee contributes two actual arms to eight traversed internal edges");
         Near(route.FittingContributions.Single(f=>f.Piece==1).Length,1,"tee contribution omits unused arm",.00001);
         Near(route.FittingContributions.Single(f=>f.Piece==3).Length,PortGraphFixtures.ArcLength(1,Math.PI/2),"elbow fitting contribution is curved",.00001);
-        Near(n.Find(finish,start).Length,route.Length,"full 3D mesh route reverses without changing length",.00002);
+        CostReverse(n,start,finish,route,"full 3D mesh route");
         Check(route.Steps.Where(s=>s.Kind==CableEdgeKind.ConnectionEdge).All(s=>s.Length<.002001),"full route physical connections remain near zero");
         if(artifactDirectory!=null)
         {
@@ -226,7 +226,7 @@ static partial class PortGraphChecks
             physicalComponents=network.PhysicalPieceComponents,virtualConnectorCandidates=network.VirtualConnectorCandidates,ambiguities=network.Ambiguities},options));
         Check(failures.Count==0,"all captured selected components reconstruct");
         Check(route!=null,"captured user start and finish have a continuous path");
-        Near(network.Find(location("finish"),location("start")).Length,route.Length,"captured route reverses with the same length");
+        CostReverse(network,location("start"),location("finish"),route,"captured route");
         Near(route.Steps.Sum(s=>s.Length),route.Length,"captured route total equals traversed edges");
         if(virtualConnectors){Check(network.PhysicalComponentCount==1,"captured real geometry is one physical component before virtual search");Check(route.VirtualConnectorCount==0&&!network.GraphEdges.Any(e=>e.Kind==CableEdgeKind.VirtualConnectorEdge),"virtual mode creates no shortcut in the captured real component");}
         Console.WriteLine("CAPTURED RESULT: "+route.Length.ToString("F9")+" m; "+route.Pieces.Length+" parts; requires review: "+route.RequiresReview);
@@ -239,6 +239,6 @@ static partial class PortGraphChecks
     {
         if(args.Length==4&&(args[0]=="--replay-capture"||args[0]=="--replay-capture-virtual")){try{ReplayCaptured(args[1],args[2],args[3],args[0]=="--replay-capture-virtual");}catch(Exception e){Console.Error.WriteLine(e.Message);Environment.ExitCode=1;}return;}
         if(args.Length>0&&args[0]=="--fixture-only"){PortGraphFixtures.WriteArtifacts(args.Length>1?args[1]:"artifacts");Console.WriteLine("Synthetic IFC, mesh manifest and expected lengths written.");return;}
-        string artifacts=args.Length>0?args[0]:null;PureGraph();ConnectivityRegressions();GeometryCases();FoldedAndSleeveCases();GapBridgeCases();VirtualConnectorCases(artifacts);ConnectivityDiagnosticCases();FullMeshRoute(artifacts);if(artifacts!=null){PortGraphFixtures.WriteArtifacts(artifacts);PortGraphFixtures.WriteGapBridgeArtifacts(artifacts);PortGraphFixtures.WriteVirtualConnectorArtifacts(artifacts);PortGraphFixtures.WriteConnectivityArtifacts(artifacts);}Console.WriteLine("RESULT: "+count+" port graph checks passed.");
+        string artifacts=args.Length>0?args[0]:null;PureGraph();ConnectivityRegressions();GeometryCases();FoldedAndSleeveCases();GapBridgeCases();VirtualConnectorCases(artifacts);ConnectivityDiagnosticCases();PathCostCases();FullMeshRoute(artifacts);if(artifacts!=null){PortGraphFixtures.WriteArtifacts(artifacts);PortGraphFixtures.WriteGapBridgeArtifacts(artifacts);PortGraphFixtures.WriteVirtualConnectorArtifacts(artifacts);PortGraphFixtures.WriteConnectivityArtifacts(artifacts);}Console.WriteLine("RESULT: "+count+" port graph checks passed.");
     }
 }

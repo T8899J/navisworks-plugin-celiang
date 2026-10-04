@@ -110,8 +110,8 @@ static partial class PortGraphChecks
 
         n=GapNet(ConfirmedDetour(),Line("short-cut-A",new Vec(),new Vec(1,0,0)),Line("short-cut-B",new Vec(1.03,0,0),new Vec(2.03,0,0)));
         Check(HasGap(n),"routing fixture contains a shorter gap shortcut and a confirmed detour");
-        route=n.Find(n.AtPort(0,0),n.AtPort(0,1));Near(route.Length,14.03,"confirmed route preferred over gap route even when physically much longer");
-        Check(route.GapBridgeCount==0&&!route.RequiresReview,"confirmed route preference reports zero gap bridges");
+        route=n.Find(n.AtPort(0,0),n.AtPort(0,1));Near(route.Length,2.03,"shorter gap route wins over a much longer confirmed detour");
+        Check(route.GapBridgeCount==1&&route.RequiresReview,"selected shorter gap route retains its review status");CostReverse(n,n.AtPort(0,0),n.AtPort(0,1),route,"shorter gap shortcut");
 
         var lowA=Line("lower-A",new Vec(),new Vec(1,0,0));var lowB=Line("lower-B",new Vec(1.03,0,0),new Vec(2.03,0,0));
         n=GapNet(GapTestHub("left-equal-count",0,.5,false),GapTestHub("right-equal-count",2.03,.5,true),lowA,lowB,
@@ -124,9 +124,9 @@ static partial class PortGraphChecks
             Line("upper-two-gaps-A",new Vec(0,4,0),new Vec(.6,4,0)),Line("upper-two-gaps-middle",new Vec(.63,4,0),new Vec(1.2,4,0)),
             Line("upper-two-gaps-B",new Vec(1.23,4,0),new Vec(2.03,4,0)));
         Check(n.GraphEdges.Count(e=>e.Kind==CableEdgeKind.GapBridgeEdge)==3,"fewer-gap fixture contains a one-gap route and a shorter two-gap route");
-        route=n.Find(n.AtPort(0,2),n.AtPort(1,2));Near(route.Length,13.03,"one gap preferred over two gaps before comparing physical length");
-        Check(route.GapBridgeCount==1,"lexicographic route cost reports the selected one-gap count");
+        route=n.Find(n.AtPort(0,2),n.AtPort(1,2));Near(route.Length,7.03,"shorter two-gap route wins before comparing gap count");
+        Check(route.GapBridgeCount==2,"total length priority reports both selected gap bridges");
         Near(route.Steps.Sum(s=>s.Length),route.Length,"lexicographic preference never adds a fictitious distance penalty");
-        Near(n.Find(n.AtPort(1,2),n.AtPort(0,2)).Length,route.Length,"fewer-gap preference is reversible");
+        CostReverse(n,n.AtPort(0,2),n.AtPort(1,2),route,"shorter two-gap route");
     }
 }

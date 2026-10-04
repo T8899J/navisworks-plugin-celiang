@@ -1,6 +1,6 @@
-# VirtualConnector 三维实验（V12）
+# VirtualConnector 三维实验（V13）
 
-继续使用现有 Port / Junction / Edge Graph。当前 DLL、拾取工具、渲染插件和宿主探针注册名均为 V12；唯一用户入口仍为 `启动电缆路径实验.bat`。本阶段只增加真实模型连通诊断和 Top-N 实验策略，配件几何及严格 GapBridge 保持原有规则。
+继续使用现有 Port / Junction / Edge Graph。当前 DLL、拾取工具、渲染插件和宿主探针注册名均为 V13；唯一用户入口仍为 `启动电缆路径实验.bat`。V12 的真实模型连通诊断、Top-N 实验策略和候选生成保持不变；V13 只修改寻路成本，配件几何及严格 GapBridge 保持原有规则。
 
 ## 配置
 
@@ -25,7 +25,7 @@ PhysicalTolerance 仍为 2mm。严格 GapBridge 仍使用 50mm 距离、2mm Widt
 
 全部 `VirtualConnectorEdge` 都是 `RequiresReview=true`、`Confirmed=false`、`Status=Candidate`，不确认物理可通行性。长度、坐标和高亮线段全部使用真实世界 XYZ。
 
-Dijkstra 继续按 `(VirtualConnectorCount, VirtualConnectorTotalLength, TotalRouteLength)` 字典序选择路径，不增加人工长度惩罚。总长包含所有实际经过的 InternalEdge、物理小间隙、GapBridge、VirtualConnector。零虚拟连接的真实路线优先。`Find(start, finish, false)` 继续排除全部待复核边。
+Dijkstra 在所有模式下统一按 `(TotalLength, VerticalTravel, VirtualConnectorCount, VirtualConnectorTotalLength, GapBridgeCount)` 字典序选择路径。总长是第一目标，较短的虚拟连接不能使明显更长的路线胜出；只有总长完全相同时，才比较后续指标。总长包含实际经过的 InternalEdge、物理小间隙、GapBridge、VirtualConnector。`VerticalTravel` 沿全部实际经过的中心折线累计每段绝对 Z 变化，包括中途升高后下降；station 裁剪的边只累计经过部分。`Find(start, finish, false)` 继续排除全部待复核边。详细成本定义和验证方法见 [PATH_COST.md](PATH_COST.md)。
 
 找到待复核路线后显示 **“候选路径，需要复核”**。未找到时抛出带 `CableConnectivityDiagnostics` 的 `CablePathNotFoundException`，记录起终真实分量、所有分量的边界自由端口，并为起点分量每个自由 Port 搜索全模型其他分量的最近 Top 5。失败诊断不受入图候选半径限制，也不改变图；半径外候选标记 `DiagnosticOnly`。
 
