@@ -2,7 +2,7 @@
 
 本阶段保持现有 Port Graph、2mm PhysicalTolerance、严格 GapBridge 和配件重建规则，诊断真实模型断图；不增加桥架类型、主路优先、K-shortest 或工程规则。
 
-本文保留 V12 的诊断行为和历史验证记录。当前 V13 继续使用这些拓扑与候选生成规则，仅替换寻路成本；现用成本以 [PATH_COST.md](PATH_COST.md) 为准。
+本文保留 V12 的诊断行为和历史验证记录。当前自动候选准入已改为前向、端口优先、每端口最多一条；规则见 [VIRTUAL_CONNECTOR.md](VIRTUAL_CONNECTOR.md)，现用成本仍以 [PATH_COST.md](PATH_COST.md) 为准。
 
 ## 建图和显示状态
 
@@ -10,15 +10,15 @@
 
 ## 候选图
 
-当前配置 `VirtualConnectorExperimentalTopN=true`、`VirtualConnectorTopN=5`、`VirtualConnectorMaxDistance=0.5` 米。真实连接建立后先计算 Physical Connected Components，只有跨分量的自由 Port 才生成虚拟候选；Port-to-Port 与 Port-to-Segment 一起按世界 XYZ 距离排名。保留 Top-N 的全部候选，不因候选数超过一而全部拒绝。
+当前配置 `VirtualConnectorExperimentalTopN=true`、`VirtualConnectorTopN=5`、`VirtualConnectorMaxDistance=0.5` 米。真实连接建立后先计算 Physical Connected Components，只有跨分量的自由 Port 才生成虚拟候选；Port-to-Port 与 Port-to-Segment 一起按世界 XYZ 距离形成诊断 Top-N。自动入图独立选择前向合法候选，优先最近 Port-to-Port，缺少合法端口时才选最近 Port-to-Segment；每端口最多一条自动连接，禁止把全部诊断 Top-N 入图。
 
-全部虚拟连接为 `Candidate`、`RequiresReview=true`、`Confirmed=false`。V12 原成本先比较虚拟连接数量和虚拟连接总长；V13 已统一替换为 `(TotalLength, VerticalTravel, VirtualConnectorCount, VirtualConnectorTotalLength, GapBridgeCount)`。找到后仍显示“候选路径，需要复核”；长度包含虚拟连接的三维欧氏距离，不等于施工可通行性已确认。严格模式继续排除待复核边。
+入图连接为 `Candidate`，其他合法候选为 `DiagnosticOnly`；不在前向半空间的候选为 `BehindSourcePort` / `BehindTargetPort`。所有候选均 `RequiresReview=true`、`Confirmed=false`，仅 `Candidate` 能成为图边。V12 原成本先比较虚拟连接数量和虚拟连接总长；V13 已统一替换为 `(TotalLength, VerticalTravel, VirtualConnectorCount, VirtualConnectorTotalLength, GapBridgeCount)`。找到后仍显示“候选路径，需要复核”；长度包含虚拟连接的三维欧氏距离，不等于施工可通行性已确认。严格模式继续排除待复核边。
 
 ## 找不到路径时
 
 `CablePathNotFoundException.Diagnostics` 包含起终 Physical Component ID、所有分量的边界自由端口，以及起点分量每个自由 Port 对其他分量的最近 Top 5。诊断搜索不受 0.5m 入图半径限制，不修改或确认 Graph。真正入图的候选仍受独立配置半径限制。
 
-每条候选包含：源/目标构件 ID、名称和 RunName，源 Port，目标 Port 或 InternalEdge + station；源/目标真实分量；世界 XYZ、带符号 DeltaX/Y/Z、Distance3D；源方向角、目标 Port 方向角/相向角或目标中心线切向角；两端几何宽高及尺寸差；CandidateRank、CandidateCount、是否在入图半径内。零距离时无定义的角度为 null。
+每条候选包含：源/目标构件 ID、名称和 RunName，源 Port，目标 Port 或 InternalEdge + station；源/目标真实分量；世界 XYZ、带符号 DeltaX/Y/Z、Distance3D；源方向角、目标 Port 方向角/相向角或目标中心线切向角；两端几何宽高及尺寸差；CandidateRank、CandidateCount、是否在入图半径内、ParallelOffsetRisk 和 Status。零距离时无定义的角度为 null；表格和 JSON 均保留风险及准入状态。
 
 失败后默认定位全部已记录候选中距离最近的一条，并画红色 3D 线和端点标记。展开“查看明细与断点诊断”的“断点诊断”页可查看其余候选，点击行更换红线。表格每页 100 条，横向滚动可看完整参数，JSON 保留全部记录。
 

@@ -16,11 +16,13 @@ namespace TrayRouteExperiment
         public double GapBridgeSizeTolerance { get; set; } = .003;
         // Independent search radius, not a physical tolerance. Zero preserves legacy callers.
         public double VirtualConnectorMaxDistance { get; set; }
+        // Retained for configuration compatibility; both values use the same safe candidate admission.
         public bool VirtualConnectorExperimentalTopN { get; set; }
+        // Diagnostic/UI count only; never the number of routable connectors at a port.
         public int VirtualConnectorTopN { get; set; } = 5;
-        // Degrees between a port's outward direction and the connector (both ends for Port-to-Port). Zero disables.
+        // Retained for compatibility. Admission uses only the forward half-space, not a cone angle.
         public double VirtualConnectorMaxAngle { get; set; }
-        // Rejects connectors between parallel trays whose axes are offset sideways by more than half a cross-section.
+        // Historical name: annotate local side/height offset risks only; never reject a candidate.
         public bool VirtualConnectorRejectParallelOffset { get; set; }
         // Recognized components kept in the port graph; the rest are reported as rejected. Diagnostics use the same value.
         public int MaxPieces { get; set; } = 2000;
@@ -40,6 +42,10 @@ namespace TrayRouteExperiment
         public string TargetPieceId, TargetName, TargetRunName, TargetPortId, TargetEdgeId;
         public Vec SourcePoint, TargetPoint;
         public double TargetStation, Distance3D, DeltaX, DeltaY, DeltaZ;
+        // Signed world-metre projections on the source port's normalized local axes.
+        public double ForwardOffset;
+        public double? WidthOffset, HeightOffset; // Null only when neither port nor piece provides the axis.
+        public bool ParallelOffsetRisk;
         public double SourceWidth, SourceHeight, TargetWidth, TargetHeight, WidthDifference, HeightDifference;
         public double? SourceDirectionAngleDegrees, TargetDirectionAngleDegrees, PortFacingAngleDegrees, TargetTangentAngleDegrees;
         public int SourcePhysicalComponent, TargetPhysicalComponent, CandidateCount, TargetPortCandidateCount;

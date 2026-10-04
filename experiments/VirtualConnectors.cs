@@ -68,6 +68,12 @@ namespace TrayRouteExperiment
             return Math.Acos(Math.Max(-1,Math.Min(1,direction.Dot(displacement)/length)))*180/Math.PI;
         }
 
+        static double? LocalVirtualOffset(Vec delta,Vec portAxis,Vec pieceAxis)
+        {
+            var axis=portAxis.Finite&&portAxis.Norm>1e-9?portAxis:pieceAxis;
+            return axis.Finite&&axis.Norm>1e-9?(double?)(delta.Dot(axis)/axis.Norm):null;
+        }
+
         VirtualProposal DescribeVirtual(CableLocation a,CableLocation b,VirtualConnectorKind kind)
         {
             var source=Pieces[a.Piece].Shape;var target=Pieces[b.Piece].Shape;var port=source.Ports[a.Port];
@@ -76,6 +82,9 @@ namespace TrayRouteExperiment
                 TargetPiece=b.Piece,TargetPieceId=target.Id,TargetName=target.Name,TargetRunName=target.System,TargetPort=b.Port,TargetPortId=b.Port<0?null:target.Ports[b.Port].Id,
                 TargetEdge=b.Edge,TargetEdgeId=target.InternalEdges[b.Edge].Id,TargetStation=b.Station,SourcePoint=a.Point,TargetPoint=b.Point,
                 Distance3D=delta.Norm,DeltaX=delta.X,DeltaY=delta.Y,DeltaZ=delta.Z,SourceWidth=port.Width,SourceHeight=port.Height,
+                ForwardOffset=delta.Dot(port.Outward),
+                WidthOffset=LocalVirtualOffset(delta,port.WidthAxis,Pieces[a.Piece].WidthAxis),
+                HeightOffset=LocalVirtualOffset(delta,port.HeightAxis,Pieces[a.Piece].HeightAxis),
                 SourceDirectionAngleDegrees=DirectionAngle(port.Outward,delta),SourcePhysicalComponent=PhysicalPieceComponents[a.Piece],TargetPhysicalComponent=PhysicalPieceComponents[b.Piece]};
             if(kind==VirtualConnectorKind.PortToPort3D)
             {
@@ -90,98 +99,44 @@ namespace TrayRouteExperiment
                 d.TargetTangentAngleDegrees=DirectionAngle(edge.Centerline.Last()-edge.Centerline[0],delta);
             }
             d.WidthDifference=d.TargetWidth-d.SourceWidth;d.HeightDifference=d.TargetHeight-d.SourceHeight;
+            if(VirtualConnectorRejectParallelOffset)
+            {
+                var targetAxis=kind==VirtualConnectorKind.PortToPort3D?target.Ports[b.Port].Outward:
+                    target.InternalEdges[b.Edge].Centerline.Last()-target.InternalEdges[b.Edge].Centerline[0];
+                double? axisAngle=DirectionAngle(port.Outward,targetAxis);
+                bool parallel=axisAngle.HasValue&&(axisAngle.Value<=ParallelAngleDegrees||axisAngle.Value>=180-ParallelAngleDegrees);
+                bool sideRisk=parallel&&d.WidthOffset.HasValue&&Math.Abs(d.WidthOffset.Value)>Math.Max(d.SourceWidth,d.TargetWidth)/2;
+                // A height discontinuity (including a perpendicular port-to-segment jump) is a
+                // review risk in its own local dimension, never a lateral-distance rejection.
+                bool heightRisk=d.HeightOffset.HasValue&&Math.Abs(d.HeightOffset.Value)>Math.Max(d.SourceHeight,d.TargetHeight)/2;
+                d.ParallelOffsetRisk=sideRisk||heightRisk;
+            }
             return new VirtualProposal{A=a,B=b,Diagnostic=d};
         }
 
         const double ParallelAngleDegrees=15;
-        // Geometric plausibility of a virtual connector; filters only graph candidates, never diagnostics.
+        // Admission uses the open forward half-space, never a fixed angular cone.
+        // Directions were normalized by ValidatePart, so the epsilon is in world metres.
         bool PassesVirtualFilters(VirtualProposal proposal)
         {
             var d=proposal.Diagnostic;
-            if(VirtualConnectorMaxAngle>0)
+            if(d.ForwardOffset<=PositionEpsilon)
             {
-                bool tooWide=d.SourceDirectionAngleDegrees.HasValue&&d.SourceDirectionAngleDegrees.Value>VirtualConnectorMaxAngle+1e-9||
-                    d.Kind==VirtualConnectorKind.PortToPort3D&&d.TargetDirectionAngleDegrees.HasValue&&d.TargetDirectionAngleDegrees.Value>VirtualConnectorMaxAngle+1e-9;
-                if(tooWide){VirtualConnectorDirectionRejected++;return false;}
+                d.Status="BehindSourcePort";d.Reason="目标不在源 Port 前向半空间内；仅诊断";return false;
             }
-            if(VirtualConnectorRejectParallelOffset)
+            if(d.Kind==VirtualConnectorKind.PortToPort3D&&
+                Pieces[d.TargetPiece].Shape.Ports[d.TargetPort].Outward.Dot(proposal.A.Point-proposal.B.Point)<=PositionEpsilon)
             {
-                var source=Pieces[d.SourcePiece].Shape.Ports[d.SourcePort].Outward;
-                Vec target;
-                if(d.Kind==VirtualConnectorKind.PortToPort3D)target=Pieces[d.TargetPiece].Shape.Ports[d.TargetPort].Outward;
-                else{var line=Pieces[d.TargetPiece].Shape.InternalEdges[d.TargetEdge].Centerline;target=line.Last()-line[0];}
-                double? axisAngle=DirectionAngle(source,target);
-                bool parallel=axisAngle.HasValue&&(axisAngle.Value<=ParallelAngleDegrees||axisAngle.Value>=180-ParallelAngleDegrees);
-                if(parallel&&source.Norm>1e-15)
-                {
-                    var axis=source*(1/source.Norm);var delta=proposal.B.Point-proposal.A.Point;
-                    double lateral=(delta-axis*delta.Dot(axis)).Norm;
-                    if(lateral>Math.Max(d.SourceWidth,d.TargetWidth)/2){VirtualConnectorParallelRejected++;return false;}
-                }
+                d.Status="BehindTargetPort";d.Reason="源点不在目标 Port 前向半空间内；仅诊断";return false;
             }
+            d.Status="DiagnosticOnly";d.Reason="未选为自动连接；仅诊断";
             return true;
         }
 
         void BuildVirtualConnectors(HashSet<string> occupied)
         {
             if(VirtualConnectorMaxDistance<=0)return;
-            if(VirtualConnectorExperimentalTopN){BuildVirtualTopCandidates(occupied);return;}
-            var free=new List<CableLocation>();
-            for(int piece=0;piece<Pieces.Count;piece++)for(int port=0;port<Pieces[piece].Shape.Ports.Length;port++)
-            {
-                var location=WorldPort(piece,port);if(!occupied.Contains(Socket(location)))free.Add(location);
-            }
-            var proposals=new List<VirtualProposal>();
-            Action<VirtualProposal> add=proposal=>{
-                var d=proposal.Diagnostic;if(!Vec.IsFinite(d.Distance3D)||d.Distance3D>VirtualConnectorMaxDistance+1e-10)return;
-                if(!PassesVirtualFilters(proposal))return;
-                VirtualConnectorCandidates.Add(d);
-                if(d.SourcePhysicalComponent==d.TargetPhysicalComponent)
-                {d.Status="SkippedSamePhysicalComponent";d.Reason="已通过真实 InternalEdge / ConnectionEdge 连通，不创建虚拟捷径";return;}
-                proposals.Add(proposal);
-            };
-            for(int i=0;i<free.Count;i++)for(int j=i+1;j<free.Count;j++)if(free[i].Piece!=free[j].Piece)
-            {
-                if((free[i].Point-free[j].Point).Norm>VirtualConnectorMaxDistance+1e-10)continue;
-                add(DescribeVirtual(free[i],free[j],VirtualConnectorKind.PortToPort3D));
-            }
-            foreach(var source in free)for(int piece=0;piece<Pieces.Count;piece++)if(source.Piece!=piece)
-            {
-                var part=Pieces[piece].Shape;
-                for(int edge=0;edge<part.InternalEdges.Length;edge++)
-                {
-                    var path=part.InternalEdges[edge];if(!IsVirtualSegmentTarget(part,path))continue;
-                    var target=ClosestOnInternalEdge(piece,edge,source.Point);
-                    // End stations belong to Port-to-Port candidates. Taking only the closest
-                    // projection over all segments also avoids duplicate candidates at vertices.
-                    if(target.Station<=PositionEpsilon||path.Length-target.Station<=PositionEpsilon)continue;
-                    if((target.Point-source.Point).Norm>VirtualConnectorMaxDistance+1e-10)continue;
-                    add(DescribeVirtual(source,target,VirtualConnectorKind.PortToSegment3D));
-                }
-            }
-            var counts=new Dictionary<string,int>(StringComparer.Ordinal);
-            foreach(var proposal in proposals)
-            {
-                var sockets=proposal.Diagnostic.Kind==VirtualConnectorKind.PortToPort3D?new[]{Socket(proposal.A),Socket(proposal.B)}:new[]{Socket(proposal.A)};
-                foreach(string socket in sockets){int count;counts.TryGetValue(socket,out count);counts[socket]=count+1;}
-            }
-            foreach(var proposal in proposals)
-            {
-                var d=proposal.Diagnostic;d.CandidateCount=counts[Socket(proposal.A)];
-                d.TargetPortCandidateCount=d.Kind==VirtualConnectorKind.PortToPort3D?counts[Socket(proposal.B)]:0;
-                if(d.CandidateCount!=1||(d.Kind==VirtualConnectorKind.PortToPort3D&&d.TargetPortCandidateCount!=1))
-                {
-                    d.Status="Ambiguous";d.Reason="候选不唯一，禁止自动连接";
-                    Ambiguities.Add("VirtualConnector Ambiguous: "+Label(d.SourcePiece)+" / "+d.SourcePortId+" ("+d.CandidateCount+") -> "+
-                        Label(d.TargetPiece)+" / "+(d.TargetPortId??d.TargetEdgeId+"@"+d.TargetStation.ToString("R",CultureInfo.InvariantCulture))+" ("+d.TargetPortCandidateCount+")");
-                    continue;
-                }
-                d.Status="Accepted";d.Reason="不同真实连通分量之间的唯一候选，需确认实际可穿缆";
-                string review=string.Format(CultureInfo.InvariantCulture,"{0} 虚拟连接待复核: distance3D={1:F6} m; deltaX={2:F6} m; deltaY={3:F6} m; deltaZ={4:F6} m; candidates={5}/{6}",
-                    d.Kind,d.Distance3D,d.DeltaX,d.DeltaY,d.DeltaZ,d.CandidateCount,d.TargetPortCandidateCount);
-                Joins.Add(new CableJoin{A=proposal.A,B=proposal.B,Kind=d.Kind.ToString(),VirtualConnector=d,ConnectionPoint=proposal.B.Point,
-                    SurfaceGap=d.Distance3D,RequiresReview=true,ReviewReason=review});
-            }
+            BuildVirtualCandidates(occupied);
         }
 
         internal struct PathCost

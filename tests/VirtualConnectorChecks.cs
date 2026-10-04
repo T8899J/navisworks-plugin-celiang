@@ -12,6 +12,12 @@ static partial class PortGraphChecks
     {
         return new CableNetwork(pieces.ToList(),options:new CableNetworkOptions{VirtualConnectorMaxDistance=.5});
     }
+    static CableNetwork ProductionVirtualNet(params CablePiece[] pieces)
+    {
+        return new CableNetwork(pieces.ToList(),options:new CableNetworkOptions{GapBridgeMaxDistance=.05,
+            VirtualConnectorMaxDistance=.5,VirtualConnectorExperimentalTopN=true,VirtualConnectorTopN=5,
+            VirtualConnectorMaxAngle=0,VirtualConnectorRejectParallelOffset=true});
+    }
     static CableGraphEdge[] VirtualEdges(CableNetwork network)
     {
         return network.GraphEdges.Where(e=>e.Kind==CableEdgeKind.VirtualConnectorEdge).ToArray();
@@ -37,6 +43,7 @@ static partial class PortGraphChecks
     }
     static void VirtualConnectorCases(string artifacts)
     {
+        VirtualAdmissionCases(artifacts);
         var a=Line("3D-source",new Vec(-2,0,0),new Vec());
         var b=Line("3D-target-other-size",new Vec(.3,0,.2),new Vec(2.3,0,.2),.6);
         Check(VirtualEdges(Net(a,b)).Length==0,"VirtualConnector is opt-in for legacy API callers");
@@ -44,7 +51,7 @@ static partial class PortGraphChecks
         Check(diagnostic.Kind==VirtualConnectorKind.PortToPort3D,"different Z heights use PortToPort3D");
         Near(edge.Length,Math.Sqrt(.13),"3D connector uses sqrt(dx^2+dy^2+dz^2), not XY distance");
         Check(n.PhysicalComponentCount==2&&diagnostic.SourcePhysicalComponent!=diagnostic.TargetPhysicalComponent,"virtual connector spans different physical components");
-        Check(edge.RequiresReview&&edge.Join.RequiresReview&&diagnostic.Status=="Accepted","accepted virtual connector still requires review");
+        Check(edge.RequiresReview&&edge.Join.RequiresReview&&diagnostic.Status=="Candidate","admitted virtual connector still requires review");
         Near(diagnostic.DeltaX,.3,"candidate logs delta X");Near(diagnostic.DeltaY,0,"candidate logs delta Y");Near(diagnostic.DeltaZ,.2,"candidate logs delta Z");
         Near(diagnostic.SourceDirectionAngleDegrees.Value,Math.Atan2(.2,.3)*180/Math.PI,"candidate logs actual port-to-connector angle");
         Near(diagnostic.WidthDifference,.2,"section size difference is diagnostic rather than a hard condition");
@@ -57,9 +64,19 @@ static partial class PortGraphChecks
         a=Line("XYZ-A",origin-axis*2,origin);b=Line("XYZ-B",origin+delta,origin+delta+axis*2);
         n=VirtualNet(a,b);edge=VirtualEdges(n).Single();Near(edge.Length,Math.Sqrt(.125),"arbitrary XYZ connector uses all three delta components",1e-10);
         ReversibleVirtualRoute(n,n.AtPort(0,0),n.AtPort(1,1),4+Math.Sqrt(.125),"arbitrary XYZ Port-to-Port");
-        b.Shape.Ports[0].Outward=axis; // Intentionally faces away. Angles are collected, not filtered in this phase.
-        n=VirtualNet(a,b);diagnostic=VirtualEdges(n).Single().Join.VirtualConnector;
-        Near(diagnostic.PortFacingAngleDegrees.Value,180,"wrong-facing geometry remains reviewable with an explicit 180-degree angle");
+        n=ProductionVirtualNet(a,b);edge=VirtualEdges(n).Single();diagnostic=edge.Join.VirtualConnector;
+        Near(edge.Length,Math.Sqrt(.125),"production arbitrary XYZ connector retains its 3D distance",1e-10);
+        Near(diagnostic.ForwardOffset,.65/Math.Sqrt(14),"production arbitrary XYZ forward offset uses the source port axis");
+        Near(diagnostic.WidthOffset.Value,-.55/Math.Sqrt(5),"production arbitrary XYZ width offset is signed in the local frame");
+        Near(diagnostic.HeightOffset.Value,1.55/Math.Sqrt(70),"production arbitrary XYZ height offset is not world delta Z");
+        Check(diagnostic.ParallelOffsetRisk&&diagnostic.RequiresReview&&edge.RequiresReview,"production arbitrary XYZ candidate retains offset risk and review state");
+        ReversibleVirtualRoute(n,n.AtPort(0,0),n.AtPort(1,1),4+Math.Sqrt(.125),"production arbitrary XYZ Port-to-Port");
+        b.Shape.Ports[0].Outward=axis; // Intentionally faces away: diagnostics retain it, routing must not.
+        n=VirtualNet(a,b);diagnostic=n.VirtualConnectorCandidates.Single(d=>d.SourcePiece==0&&d.SourcePort==1);
+        Near(diagnostic.PortFacingAngleDegrees.Value,180,"wrong-facing geometry retains its explicit 180-degree diagnostic angle");
+        Check(VirtualEdges(n).Length==0&&diagnostic.Status=="BehindTargetPort","a target facing away cannot enter the routing graph");
+        n=ProductionVirtualNet(a,b);diagnostic=n.VirtualConnectorCandidates.Single(d=>d.SourcePiece==0&&d.SourcePort==1);
+        Check(diagnostic.RequiresReview&&diagnostic.Status=="BehindTargetPort"&&VirtualEdges(n).Length==0,"production zero angle limit still enforces the target forward half-space");
 
         var perturbed=Line("actual-port",new Vec(-2,0,0),new Vec());perturbed.Shape.Ports[1].Point=new Vec(8e-8,0,0);
         n=VirtualNet(perturbed,Line("exact-target",new Vec(.3,0,.2),new Vec(2.3,0,.2)));
@@ -86,6 +103,12 @@ static partial class PortGraphChecks
         Near(diagnostic.Distance3D,Math.Sqrt(.1525),"Port-to-Segment with height gap uses 3D distance");
         Near(diagnostic.DeltaZ,-.25,"Port-to-Segment logs the signed height change");
         ReversibleVirtualRoute(n,n.AtPort(1,0),n.At(0,8),6.7+Math.Sqrt(.1525),"raised Port-to-Segment");
+        n=ProductionVirtualNet(main,branch);diagnostic=VirtualEdges(n).Single().Join.VirtualConnector;
+        Check(diagnostic.Kind==VirtualConnectorKind.PortToSegment3D&&diagnostic.RequiresReview,"production raised Port-to-Segment remains a review candidate");
+        Near(diagnostic.Distance3D,Math.Sqrt(.1525),"production raised projection retains its 3D distance");
+        Near(diagnostic.TargetStation,3,"production raised projection retains its station");
+        Near(diagnostic.HeightOffset.Value,-.25,"production raised projection records signed local height separately");
+        ReversibleVirtualRoute(n,n.AtPort(1,0),n.At(0,8),6.7+Math.Sqrt(.1525),"production raised Port-to-Segment");
 
         origin=new Vec(10,20,30);axis=Unit(new Vec(1,2,3));var q=origin+axis*.7;delta=Unit(axis.Cross(new Vec(.6,-.3,.1)))*.35;
         main=Line("sloping-main",origin-axis*3,origin+axis*5);main.Shape.Kind="Slope";
@@ -94,8 +117,15 @@ static partial class PortGraphChecks
         n=VirtualNet(main,branch);diagnostic=VirtualEdges(n).Single().Join.VirtualConnector;
         Near((diagnostic.TargetPoint-q).Norm,0,"XYZ projection reaches the independently constructed perpendicular foot");
         Near(diagnostic.TargetStation,3.7,"XYZ polyline projection accumulates 3D stations");Near(diagnostic.Distance3D,.35,"XYZ Port-to-Segment uses full perpendicular distance");
-        Check(n.VirtualConnectorCandidates.Count(d=>d.Status=="Accepted")==1,"projection at a shared polyline vertex is deduplicated");
+        Check(n.VirtualConnectorCandidates.Count(d=>d.Status=="Candidate")==1,"projection at a shared polyline vertex is deduplicated");
         ReversibleVirtualRoute(n,n.AtPort(1,0),n.AtPort(0,1),6.65,"XYZ slope Port-to-Segment");
+        n=ProductionVirtualNet(main,branch);diagnostic=VirtualEdges(n).Single().Join.VirtualConnector;
+        Check(diagnostic.Kind==VirtualConnectorKind.PortToSegment3D&&diagnostic.RequiresReview,"production XYZ slope projection remains a review candidate");
+        Near((diagnostic.TargetPoint-q).Norm,0,"production XYZ projection retains its perpendicular foot");
+        Near(diagnostic.TargetStation,3.7,"production XYZ projection retains its polyline station");
+        Near(diagnostic.Distance3D,.35,"production XYZ projection retains its 3D distance");
+        Check(n.VirtualConnectorCandidates.Count(d=>d.Status=="Candidate")==1,"production XYZ projection at a polyline vertex is still deduplicated");
+        ReversibleVirtualRoute(n,n.AtPort(1,0),n.AtPort(0,1),6.65,"production XYZ slope Port-to-Segment");
 
         main=Line("reversed-main",new Vec(10,0,0),new Vec());branch=Line("reversed-branch",new Vec(3,-2,.25),new Vec(3,-.3,.25));
         n=VirtualNet(main,branch);Near(VirtualEdges(n).Single().Join.VirtualConnector.TargetStation,7,"reversing main centreline reverses station rather than XYZ projection");
@@ -107,7 +137,7 @@ static partial class PortGraphChecks
         a=Line("connected-detour-A",new Vec(),new Vec(1,0,0));b=Line("connected-detour-B",new Vec(1.03,0,0),new Vec(2.03,0,0));
         n=VirtualNet(ConfirmedDetour(),a,b);
         Check(n.PhysicalComponentCount==1&&n.Joins.Count==2,"all real physical connections precede component detection");
-        Check(VirtualEdges(n).Length==0&&n.VirtualConnectorCandidates.Any(d=>d.Status=="SkippedSamePhysicalComponent"),"existing real path prevents creating a 30mm virtual shortcut");
+        Check(VirtualEdges(n).Length==0&&!n.VirtualConnectorCandidates.Any(d=>d.SourcePhysicalComponent==d.TargetPhysicalComponent),"existing real path prevents creating a 30mm virtual shortcut");
         var route=n.Find(n.AtPort(0,0),n.AtPort(0,1));Near(route.Length,14.03,"connected endpoints keep their full real detour");Check(route.VirtualConnectorCount==0,"confirmed route contributes no virtual connector");
 
         var detour=ConfirmedDetour();var internalJunction=new Vec(1.5,-5,0);
@@ -117,21 +147,22 @@ static partial class PortGraphChecks
         detour.Shape.InternalEdges[2].Centerline=new[]{detour.Shape.Ports[2].Point,internalJunction};
         n=VirtualNet(detour,Line("real-A",new Vec(),new Vec(1,0,0)),Line("real-B",new Vec(2,0,0),new Vec(3,0,0)),
             Line("outside-component",new Vec(1,.3,.2),new Vec(2,.3,.2)));
-        Check(VirtualEdges(n).Length==2,"different-component connectors can coexist with a real detour without linking within the real component");
-        route=n.Find(n.AtPort(1,1),n.AtPort(2,0));Near(route.Length,1+2*Math.Sqrt(.13),"shorter total route wins over a long confirmed physical detour");
-        Check(route.VirtualConnectorCount==2&&route.RequiresReview,"shorter external bypass remains explicitly reviewable with both virtual connectors");
-        CostReverse(n,n.AtPort(1,1),n.AtPort(2,0),route,"shorter reviewed bypass");
+        Check(VirtualEdges(n).Length==0,"pure transverse jumps cannot bypass an existing real detour through another component");
+        Check(n.VirtualConnectorCandidates.Any(d=>d.Status=="BehindSourcePort"),"transverse bypass candidates remain in diagnostics");
+        route=n.Find(n.AtPort(1,1),n.AtPort(2,0));Near(route.Length,17,"forward admission preserves the real detour when transverse jumps are not routable");
+        Check(route.VirtualConnectorCount==0,"real detour contains no virtual transverse bypass");
+        CostReverse(n,n.AtPort(1,1),n.AtPort(2,0),route,"real route without transverse bypass");
 
         a=Line("ambiguous-source",new Vec(-2,0,0),new Vec());
         b=Line("near-candidate",new Vec(.3,0,.2),new Vec(2.3,0,.2));var c=Line("far-candidate",new Vec(.4,0,-.2),new Vec(2.4,0,-.2));
-        n=VirtualNet(a,b,c);Check(VirtualEdges(n).Length==0&&n.Ambiguities.Any(s=>s.Contains("VirtualConnector Ambiguous")),"multiple Port-to-Port candidates reject all rather than choosing nearest");
-        Check(n.VirtualConnectorCandidates.Where(d=>d.SourcePiece==0).All(d=>d.Status=="Ambiguous"&&d.CandidateCount==2),"ambiguous diagnostics retain full candidate counts");
-        Check(VirtualEdges(VirtualNet(c,b,a)).Length==0,"mutual uniqueness is independent of enumeration order");
+        n=VirtualNet(a,b,c);Check(VirtualEdges(n).Length==1&&VirtualEdges(n).Single().Join.VirtualConnector.TargetPiece==1,"multiple Port-to-Port choices admit only the nearest facing pair");
+        Check(n.VirtualConnectorCandidates.Where(d=>d.SourcePiece==0).All(d=>d.CandidateCount==2)&&n.VirtualConnectorCandidates.Any(d=>d.SourcePiece==0&&d.TargetPiece==2&&d.Status=="DiagnosticOnly"),"unselected port diagnostics retain full candidate counts");
+        var reversed=VirtualNet(c,b,a);Check(VirtualEdges(reversed).Length==1&&new[]{VirtualEdges(reversed).Single().Join.A.Piece,VirtualEdges(reversed).Single().Join.B.Piece}.OrderBy(i=>i).SequenceEqual(new[]{1,2}),"nearest facing pair is independent of enumeration order");
         main=Line("mixed-main",new Vec(-2,.3,0),new Vec(2,.3,0));b=Line("mixed-port",new Vec(.3,0,-.2),new Vec(2.3,0,-.2));
-        n=VirtualNet(a,main,b,Line("mixed-source-extension",new Vec(-3,0,0),new Vec(-2,0,0)));Check(VirtualEdges(n).Length==0,"Port-to-Port and Port-to-Segment candidates share one ambiguity count");
+        n=VirtualNet(a,main,b,Line("mixed-source-extension",new Vec(-3,0,0),new Vec(-2,0,0)));Check(VirtualEdges(n).Length==1&&VirtualEdges(n).Single().Join.VirtualConnector.Kind==VirtualConnectorKind.PortToPort3D,"mixed choices admit the legal port connection only");
         Check(n.VirtualConnectorCandidates.Where(d=>d.SourcePiece==0).Select(d=>d.Kind).Distinct().Count()==2,"mixed candidate diagnostics identify both virtual types");
         n=VirtualNet(Line("branch-for-two-mains",new Vec(0,-2,0),new Vec(0,-.3,0)),Line("main-one",new Vec(-2,0,.1),new Vec(2,0,.1)),Line("main-two",new Vec(-2,0,-.1),new Vec(2,0,-.1)));
-        Check(VirtualEdges(n).All(e=>e.Join.A.Piece!=0&&e.Join.B.Piece!=0)&&n.VirtualConnectorCandidates.Count(d=>d.SourcePiece==0&&d.Status=="Ambiguous")==2,"two possible main centreline targets are ambiguous at the branch port");
+        Check(VirtualEdges(n).Count(e=>e.Join.A.Piece==0)==1&&n.VirtualConnectorCandidates.Count(d=>d.SourcePiece==0&&d.Status=="DiagnosticOnly")==1,"two legal segment targets admit one nearest projection and retain the other in diagnostics");
 
         a=Line("bounded-source",new Vec(-2,0,0),new Vec());b=Line("over-radius",new Vec(.4,0,.31),new Vec(2.4,0,.31));
         Check(VirtualEdges(VirtualNet(a,b)).Length==0,"independent 500mm radius rejects larger XYZ distance");
@@ -163,29 +194,79 @@ static partial class PortGraphChecks
 
     static void VirtualFilterCases()
     {
+        var raisedParallel=ProductionVirtualNet(
+            Line("parallel-raised-source",new Vec(),new Vec(2,0,0),.2),
+            Line("parallel-raised-target",new Vec(2.3,0,.2),new Vec(4.3,0,.2),.2));
+        Check(VirtualEdges(raisedParallel).Length==1,"production Top-N retains a parallel connector with forward travel and a height difference");
+        var candidate=VirtualEdges(raisedParallel).Single().Join.VirtualConnector;
+        Near(candidate.ForwardOffset,.3,"parallel raised connector records forward offset");
+        Near(candidate.WidthOffset.Value,0,"parallel height difference is not reported as width offset");
+        Near(candidate.HeightOffset.Value,.2,"parallel raised connector records local height offset");
+        Check(candidate.ParallelOffsetRisk&&candidate.RequiresReview,"parallel raised connector is retained as a review risk");
+        ReversibleVirtualRoute(raisedParallel,raisedParallel.AtPort(0,0),raisedParallel.AtPort(1,1),4+Math.Sqrt(.13),"production forward plus height connector");
         CableNetwork Filtered(double angle,bool parallel,params CablePiece[] pieces)=>new CableNetwork(pieces.ToList(),options:new CableNetworkOptions{
             VirtualConnectorMaxDistance=.5,VirtualConnectorExperimentalTopN=true,VirtualConnectorMaxAngle=angle,VirtualConnectorRejectParallelOffset=parallel});
         var a=Line("filter-a",new Vec(),new Vec(2,0,0),.2);
-        Check(VirtualEdges(Filtered(60,true,a,Line("aligned",new Vec(2.3,0,0),new Vec(4,0,0),.2))).Length==1,"aligned gap passes direction and parallel filters");
+        var aligned=Filtered(60,true,a,Line("aligned",new Vec(2.3,0,0),new Vec(4,0,0),.2));
+        Check(VirtualEdges(aligned).Length==1&&!VirtualEdges(aligned).Single().Join.VirtualConnector.ParallelOffsetRisk,"aligned gap has no parallel offset risk");
 
         var side=Line("side-by-side",new Vec(2,.3,0),new Vec(4,.3,0),.2);
-        Check(VirtualEdges(Filtered(0,false,a,side)).Length==1,"filters are disabled by default");
-        var n=Filtered(60,false,a,side);Check(VirtualEdges(n).Length==0&&n.VirtualConnectorDirectionRejected>0,"90 degree side jump is rejected by the direction cone");
-        n=Filtered(0,true,a,side);Check(VirtualEdges(n).Length==0&&n.VirtualConnectorParallelRejected>0,"side jump between parallel trays is rejected by the parallel offset rule");
+        var unmarked=Filtered(0,false,a,side);
+        Check(VirtualEdges(unmarked).Length==0&&unmarked.VirtualConnectorCandidates.All(d=>!d.ParallelOffsetRisk),"disabled parallel risk flag does not bypass forward admission");
+        var n=Filtered(60,false,a,side);Check(VirtualEdges(n).Length==0&&n.VirtualConnectorCandidates.All(d=>d.Status=="BehindSourcePort"),"pure side jump is diagnostic because its forward projection is zero");
+        n=Filtered(0,true,a,side);candidate=n.VirtualConnectorCandidates.Single(d=>d.SourcePiece==0&&d.SourcePort==1);
+        Check(candidate.ParallelOffsetRisk&&candidate.RequiresReview&&candidate.Status=="BehindSourcePort"&&VirtualEdges(n).Length==0,"pure side-by-side jump keeps risk diagnostics without becoming a graph edge");
+        Near(candidate.ForwardOffset,0,"side-by-side jump has no forward offset");Near(candidate.WidthOffset.Value,.3,"side-by-side jump records local width offset");Near(candidate.HeightOffset.Value,0,"side-by-side jump has no height offset");
+        Check(n.VirtualConnectorParallelRejected==0,"parallel risk never performs a hard rejection");
+        Check(n.VirtualConnectorCandidates.Count==unmarked.VirtualConnectorCandidates.Count&&VirtualEdges(n).Length==VirtualEdges(unmarked).Length,"parallel risk flag preserves Top-N candidate and edge counts");
         var diagnostics=n.DiagnoseConnectivity(n.AtPort(0,0),n.AtPort(1,1));
-        Check(diagnostics.Candidates.Any(d=>d.TargetPiece==1),"failure diagnostics still list candidates removed by graph filters");
+        Check(diagnostics.Candidates.Any(d=>d.TargetPiece==1&&d.ParallelOffsetRisk&&d.RequiresReview),"failure diagnostics also retain parallel offset risk annotations");
+        Reject(()=>n.Find(n.AtPort(0,0),n.AtPort(1,1)),"production side-by-side diagnostics do not create a route");
 
         var offset=Line("parallel-offset",new Vec(2.35,.2,0),new Vec(4,.2,0),.2);
         Check(VirtualEdges(Filtered(60,false,a,offset)).Length==1,"35 degree parallel offset passes the 60 degree cone alone");
-        n=Filtered(60,true,a,offset);Check(VirtualEdges(n).Length==0&&n.VirtualConnectorParallelRejected>0,"parallel trays offset beyond half a width are rejected");
+        n=Filtered(60,true,a,offset);var edge=VirtualEdges(n).Single();
+        Check(edge.Join.VirtualConnector.ParallelOffsetRisk&&edge.Join.VirtualConnector.RequiresReview&&edge.RequiresReview,"parallel trays offset beyond half a width remain review candidates with a risk flag");
+
+        var diagonal=Line("near-parallel-XYZ",new Vec(2.25,.2,.2),new Vec(4.25,.25,.25),.2);
+        n=ProductionVirtualNet(a,diagonal);edge=VirtualEdges(n).Single();candidate=edge.Join.VirtualConnector;
+        Check(candidate.ParallelOffsetRisk&&candidate.RequiresReview&&edge.RequiresReview,"near-parallel forward plus side plus height connector remains a review candidate");
+        Near(candidate.ForwardOffset,.25,"3D offset records forward travel");Near(candidate.WidthOffset.Value,.2,"3D offset records width independently");Near(candidate.HeightOffset.Value,.2,"3D offset records height independently");
+        Near(edge.Length,Math.Sqrt(.1425),"3D offset keeps actual Euclidean connector length");
+
+        var parallelMain=Line("parallel-raised-main",new Vec(1,0,.225),new Vec(5,0,.225),.2);
+        n=ProductionVirtualNet(a,parallelMain);
+        candidate=n.VirtualConnectorCandidates.Single(d=>d.SourcePiece==0&&d.SourcePort==1&&d.Kind==VirtualConnectorKind.PortToSegment3D);
+        Check(candidate.TargetPiece==1&&candidate.TargetEdgeId=="E0"&&candidate.TargetPort==-1&&candidate.RequiresReview&&candidate.ParallelOffsetRisk,"parallel source with a height gap still projects onto the main InternalEdge");
+        Near(candidate.TargetStation,1,"parallel raised main retains its interior projection station");
+        Near((candidate.TargetPoint-new Vec(2,0,.225)).Norm,0,"parallel raised main retains the correct 3D projection");
+        Near(candidate.WidthOffset.Value,0,"parallel segment height gap is separate from width");Near(candidate.HeightOffset.Value,.225,"parallel segment candidate records local height");
+        Check(candidate.Status=="BehindSourcePort"&&VirtualEdges(n).Length==0&&!n.GraphNodes.Any(node=>node.Kind==CableNodeKind.VirtualJunction),"pure height projection is diagnostic only and does not split the main graph edge");
 
         var elbow=Line("missing-45-elbow",new Vec(2.15,.15,0),new Vec(2.85,.85,0),.2);
         n=Filtered(60,true,a,elbow);Check(VirtualEdges(n).Length==1,"gap of a missing 45 degree elbow remains a candidate");
         var route=n.Find(n.AtPort(0,0),n.AtPort(1,1));Check(route.VirtualConnectorCount==1&&route.RequiresReview,"filtered candidate still yields a review route");
 
         var stacked=Line("stacked-main",new Vec(1,-.5,.225),new Vec(3,-.5,.225),.2);var branch=Line("stacked-branch",new Vec(2,-1.5,0),new Vec(2,-.5,0),.2);
-        Check(VirtualEdges(Filtered(0,false,branch,stacked)).Any(e=>e.Join.VirtualConnector.Kind==VirtualConnectorKind.PortToSegment3D),"unfiltered port jumps vertically onto a stacked tray");
-        Check(!VirtualEdges(Filtered(60,true,branch,stacked)).Any(e=>e.Join.VirtualConnector.Kind==VirtualConnectorKind.PortToSegment3D),"vertical jump perpendicular to the port is rejected");
+        Check(Filtered(0,false,branch,stacked).VirtualConnectorCandidates.Any(d=>d.Kind==VirtualConnectorKind.PortToSegment3D),"vertical projection onto a stacked tray is retained in diagnostics");
+        n=ProductionVirtualNet(branch,stacked);candidate=n.VirtualConnectorCandidates.Single(d=>d.Kind==VirtualConnectorKind.PortToSegment3D);
+        Check(candidate.ParallelOffsetRisk&&candidate.RequiresReview&&candidate.Status=="BehindSourcePort"&&VirtualEdges(n).Length==0,"vertical jump perpendicular to the port is a diagnostic risk, not a routing edge");
+
+        var framed=Line("source-port-frame",new Vec(),new Vec(2,0,0),.2);
+        framed.Shape.Ports[1].WidthAxis=new Vec(0,0,-2);framed.Shape.Ports[1].HeightAxis=new Vec(0,3,0);
+        n=ProductionVirtualNet(framed,Line("rolled-target",new Vec(2.25,-.2,.15),new Vec(4.25,-.2,.15),.2));candidate=VirtualEdges(n).Single().Join.VirtualConnector;
+        Near(candidate.ForwardOffset,.25,"local decomposition retains the outward component");
+        Near(candidate.WidthOffset.Value,-.15,"local decomposition prefers and normalizes the source port width axis");
+        Near(candidate.HeightOffset.Value,-.2,"local decomposition prefers and normalizes the source port height axis");
+        framed.Shape.Ports[1].WidthAxis=new Vec();framed.Shape.Ports[1].HeightAxis=new Vec();
+        n=ProductionVirtualNet(framed,offset);candidate=VirtualEdges(n).Single().Join.VirtualConnector;
+        Near(candidate.WidthOffset.Value,.2,"missing port width axis falls back to the piece frame");Near(candidate.HeightOffset.Value,0,"missing port height axis falls back to the piece frame");
+        framed.WidthAxis=new Vec();framed.HeightAxis=new Vec();
+        n=ProductionVirtualNet(framed,offset);candidate=VirtualEdges(n).Single().Join.VirtualConnector;
+        Check(!candidate.WidthOffset.HasValue&&!candidate.HeightOffset.HasValue&&candidate.RequiresReview,"missing local frame is reported without deleting a 3D candidate");
+
+        n=new CableNetwork(new List<CablePiece>{a,offset},options:new CableNetworkOptions{VirtualConnectorMaxDistance=.5,VirtualConnectorRejectParallelOffset=true});
+        edge=VirtualEdges(n).Single();Check(edge.Join.VirtualConnector.ParallelOffsetRisk&&edge.RequiresReview,"both configuration modes keep a forward staggered connector as review-only");
     }
 
     static void VirtualCostCases(bool experimental=false)

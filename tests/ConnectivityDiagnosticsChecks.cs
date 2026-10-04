@@ -21,7 +21,7 @@ static partial class PortGraphChecks
         var choices=n.VirtualConnectorCandidates.Where(d=>d.SourcePiece==0&&d.SourcePort==1).ToArray();
         Check(choices.Length==2&&choices.All(d=>d.CandidateCount==2),"V12 retains multiple candidates instead of rejecting the free source port");
         Check(choices.Select(d=>d.CandidateRank).SequenceEqual(new[]{1,2})&&choices[0].Distance3D<choices[1].Distance3D,"V12 ranks candidates by actual 3D distance");
-        Check(choices.All(d=>d.Status=="Candidate"&&d.RequiresReview&&!d.Confirmed),"V12 candidates are explicitly unconfirmed and require review");
+        Check(choices[0].Status=="Candidate"&&choices[1].Status=="DiagnosticOnly"&&choices.All(d=>d.RequiresReview&&!d.Confirmed),"only the nearest facing port candidate is routable; both remain unconfirmed diagnostics");
         var edges=VirtualEdges(n);Check(edges.All(e=>e.RequiresReview&&e.Join.RequiresReview&&e.Join.ReviewReason.Contains("rank=")),"every experimental graph connector carries review and ranking diagnostics");
         Check(edges.Select(e=>string.Join(":",new[]{e.From,e.To}.OrderBy(v=>v))).Distinct().Count()==edges.Length,"opposite source searches do not duplicate undirected port connectors");
         ReversibleVirtualRoute(n,n.AtPort(0,0),n.AtPort(1,1),4+Math.Sqrt(.13),"V12 ambiguous XYZ Port-to-Port candidate route");
@@ -84,7 +84,9 @@ static partial class PortGraphChecks
         Check(d.StartPhysicalComponent==n.PhysicalPieceComponents[0]&&d.FinishPhysicalComponent==n.PhysicalPieceComponents[7]&&d.PhysicalComponentCount==8,"failure identifies endpoint physical components");
         Check(d.BoundaryPorts.Count==16&&d.BoundaryPorts.Select(p=>p.PhysicalComponent).Distinct().Count()==8,"failure reports free boundary ports of all components");
         Check(d.Candidates.Count==10&&d.Candidates.GroupBy(c=>c.SourcePort).All(g=>g.Count()==5&&g.Select(c=>c.CandidateRank).OrderBy(r=>r).SequenceEqual(Enumerable.Range(1,5))),"failed start component gets Top 5 per free port");
-        Check(d.Candidates.All(c=>c.Distance3D>.5&&!c.WithinVirtualConnectorMaxDistance&&c.Status=="DiagnosticOnly"),"breakpoint diagnostics can expose disconnections beyond the graph candidate radius");
+        Check(d.Candidates.All(c=>c.Distance3D>.5&&!c.WithinVirtualConnectorMaxDistance&&
+            (c.ForwardOffset<=1e-7?c.Status=="BehindSourcePort":c.Kind==VirtualConnectorKind.PortToPort3D&&pieces[c.TargetPiece].Shape.Ports[c.TargetPort].Outward.Dot(c.SourcePoint-c.TargetPoint)<=1e-7?c.Status=="BehindTargetPort":c.Status=="DiagnosticOnly")),
+            "breakpoint diagnostics retain exact direction statuses beyond the graph candidate radius");
         Check(d.Candidates.Any(c=>c.Kind==VirtualConnectorKind.PortToSegment3D)&&d.Candidates.Any(c=>c.Kind==VirtualConnectorKind.PortToPort3D),"failure ranks port and segment targets together");
         foreach(var c in d.Candidates)
         {

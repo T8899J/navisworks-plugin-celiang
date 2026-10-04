@@ -23,9 +23,9 @@
 ## 相关诊断与过滤
 
 - 报告新增 `rejectedNearRoute`（路线 1m 内的被拒构件）和 `virtualConnectorSuspects`（每条虚拟连接 0.5m 内的被拒构件），用于定位虚拟连接在给哪些构件补洞。
-- `VirtualConnectorRejectParallelOffset`（当前开启）：拒绝两条平行桥架之间横向偏移超过半个截面宽度的虚拟候选。
-- `VirtualConnectorMaxAngle`（当前 0 关闭）：端口外向与连线夹角上限。真实模型中竖向可调连接件处的合法间隙会被 60° 锥误伤，因此默认关闭。
-- 两项过滤只作用于入图候选，失败诊断仍列出全部候选。
+- `VirtualConnectorRejectParallelOffset`（当前开启）：仅标记局部宽度/高度偏移的 `ParallelOffsetRisk`，不删除虚拟候选；具体规则见 [VIRTUAL_CONNECTOR.md](VIRTUAL_CONNECTOR.md)。
+- `VirtualConnectorMaxAngle`（当前 0）：保留兼容配置；候选准入已统一使用前向半空间，不使用固定锥角。
+- 诊断 Top-N 与自动入图分离：前向合法端口优先，每端口最多一个自动 VirtualConnector；平行偏移仅记录风险，候选继续保持待复核。Splice 桥接算法不受此准入修改影响。
 
 ## 空间范围建图
 
