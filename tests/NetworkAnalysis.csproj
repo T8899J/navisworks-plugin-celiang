@@ -1,4 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup><TargetFramework>net8.0</TargetFramework><OutputType>Exe</OutputType><EnableDefaultCompileItems>false</EnableDefaultCompileItems><NuGetAudit>false</NuGetAudit></PropertyGroup>
-  <ItemGroup><Compile Include="NetworkAnalysis.cs" /><Compile Include="..\Core\*.cs" /><Compile Include="..\experiments\RouteGeometry.cs" /></ItemGroup>
-</Project>

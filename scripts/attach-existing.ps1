@@ -1,4 +1,4 @@
-﻿param([Parameter(Mandatory=$true)][string]$Assembly, [string]$PluginId = 'TrayRouteExperiment.JPPM', [string[]]$PluginArguments = @(), [string]$NavisworksPath)
+﻿param([Parameter(Mandatory=$true)][string]$Assembly, [Parameter(Mandatory=$true)][string]$PluginId, [string[]]$PluginArguments = @(), [string]$NavisworksPath)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'host-paths.ps1')
 $NavisworksPath = Resolve-Navisworks2023Path $NavisworksPath
