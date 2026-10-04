@@ -132,6 +132,8 @@ namespace TrayRouteExperiment
                 start, finish, result = route, picked3DPoints = pickedPoints, error,
                 recognized = network.Recognized, rejected = network.Rejected, incomplete = network.Incomplete,
                 scan = new { network.ScanNodeCount, network.ScanCandidateCount, network.ScanElapsedSeconds },
+                settings = new { network.Graph.PhysicalTolerance, network.Graph.GapBridgeMaxDistance,
+                    network.Graph.GapBridgeWidthAxisTolerance, network.Graph.GapBridgeHeightAxisTolerance, network.Graph.GapBridgeSizeTolerance },
                 graphNodes = network.Graph.GraphNodes, graphEdges = network.Graph.GraphEdges,
                 ambiguities = network.Graph.Ambiguities, manualPassabilityVerified = false, manualLengthVerified = false
             }));

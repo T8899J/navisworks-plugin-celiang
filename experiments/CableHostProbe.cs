@@ -40,6 +40,8 @@ namespace TrayRouteExperiment
                 Write(args[0], new { success = true, model = document.FileName, start, finish, result = route,
                     recognized = network.Recognized, rejected = network.Rejected, incomplete = network.Incomplete,
                     scan = new { network.ScanNodeCount, network.ScanCandidateCount, network.ScanElapsedSeconds },
+                    settings = new { network.Graph.PhysicalTolerance, network.Graph.GapBridgeMaxDistance,
+                        network.Graph.GapBridgeWidthAxisTolerance, network.Graph.GapBridgeHeightAxisTolerance, network.Graph.GapBridgeSizeTolerance },
                     parts = network.Graph.Pieces.Select(p => p.Shape), graphNodes = network.Graph.GraphNodes,
                     graphEdges = network.Graph.GraphEdges, ambiguities = network.Graph.Ambiguities });
                 return 0;

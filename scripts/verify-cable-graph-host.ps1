@@ -28,12 +28,20 @@ if ($result.result.Pieces.Count -ne $fixture.expectedContributions.Count) { thro
 $internalLength = ($result.result.InternalEdges | Measure-Object -Property Length -Sum).Sum
 $connections = @($result.result.Steps | Where-Object { $_.Kind -eq 1 })
 $connectionLength = ($connections | Measure-Object -Property Length -Sum).Sum
+$gapSteps = @($result.result.Steps | Where-Object { $_.Kind -eq 2 })
+$gapLength = ($gapSteps | Measure-Object -Property Length -Sum).Sum
+$expectedGapLength = [double]$fixture.expectedGapLength
+$expectedGapCount = [int]$fixture.expectedGapCount
+if ($gapSteps.Count -ne $expectedGapCount -or $result.result.GapBridgeCount -ne $expectedGapCount) { throw 'Host gap bridge count differs from the independent fixture.' }
+if ([Math]::Abs($gapLength - $expectedGapLength) -gt 0.00001) { throw 'Host gap bridge length differs from the independent fixture by more than 10 micrometres.' }
+if ($gapSteps | Where-Object { -not $_.RequiresReview -or -not $_.Join.IsGapBridge -or $_.ReviewReason -notmatch 'gap=' }) { throw 'A gap bridge did not expose its review requirement and gap diagnostic.' }
+if ($result.settings.PhysicalTolerance -ne 0.002) { throw 'Physical tolerance changed from 2mm.' }
 # IFC's ideal fixture has coincident sockets. Navisworks can reconstruct adjacent
 # sockets at slightly different coordinates. Check these tiny gaps separately from
 # each internal centerline; never increase the 10 micrometre geometry threshold.
-if ([Math]::Abs($internalLength - $fixture.expectedRouteLength) -gt 0.00001) { throw 'Internal centerline total differs from the independent fixture by more than 10 micrometres.' }
+if ([Math]::Abs($internalLength - ($fixture.expectedRouteLength - $expectedGapLength)) -gt 0.00001) { throw 'Internal centerline total differs from the independent fixture by more than 10 micrometres.' }
 if ($connections | Where-Object { $_.Length -gt 0.00001 }) { throw 'A fixture connection gap exceeds 10 micrometres.' }
-if ([Math]::Abs($internalLength + $connectionLength - $result.result.Length) -gt 1e-10) { throw 'Route total does not equal the sum of internal and connection edges.' }
+if ([Math]::Abs($internalLength + $connectionLength + $gapLength - $result.result.Length) -gt 1e-10) { throw 'Route total does not equal the sum of internal, physical connection, and gap bridge edges.' }
 for ($i=0; $i -lt $fixture.items.Count; $i++) {
     $expectedItem = $fixture.items[$i]
     $indices = @(0..($result.parts.Count-1) | Where-Object { $result.parts[$_].Name -eq $expectedItem.Name })
@@ -41,4 +49,4 @@ for ($i=0; $i -lt $fixture.items.Count; $i++) {
     $actual = ($result.result.InternalEdges | Where-Object { $_.Piece -eq $indices[0] } | Measure-Object -Property Length -Sum).Sum
     if ([Math]::Abs($actual - $fixture.expectedContributions[$i]) -gt 0.00001) { throw "Internal contribution differs for $($expectedItem.Name)" }
 }
-Write-Host ('PASS: {0:F9} m; {1} parts; ideal difference {2:F9} m; measured connection gaps {3:F9} m.' -f $result.result.Length, $result.result.Pieces.Count, $errorMetres, $connectionLength)
+Write-Host ('PASS: {0:F9} m; {1} parts; ideal difference {2:F9} m; physical connection gaps {3:F9} m; {4} gap bridges totaling {5:F9} m.' -f $result.result.Length, $result.result.Pieces.Count, $errorMetres, $connectionLength, $gapSteps.Count, $gapLength)

@@ -4,7 +4,16 @@ using JiePinPai.TrayMeasurement.Core;
 namespace TrayRouteExperiment
 {
     public enum CableNodeKind { Port, VirtualJunction, FittingInternalJunction }
-    public enum CableEdgeKind { InternalEdge, ConnectionEdge }
+    public enum CableEdgeKind { InternalEdge, ConnectionEdge, GapBridgeEdge }
+
+    public sealed class CableNetworkOptions
+    {
+        // All distances are world metres. Zero disables gap bridging for existing callers.
+        public double GapBridgeMaxDistance { get; set; }
+        public double GapBridgeWidthAxisTolerance { get; set; } = .002;
+        public double GapBridgeHeightAxisTolerance { get; set; } = .002;
+        public double GapBridgeSizeTolerance { get; set; } = .003;
+    }
 
     public sealed class CableGraphNode
     {

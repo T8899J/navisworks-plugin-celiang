@@ -6,7 +6,7 @@ using System.Text.Json;
 using JiePinPai.TrayMeasurement.Core;
 using TrayRouteExperiment;
 
-static class PortGraphChecks
+static partial class PortGraphChecks
 {
     static int count;
     static void Check(bool pass,string name) { if(!pass)throw new InvalidOperationException("FAIL: "+name);count++;Console.WriteLine("PASS: "+name); }
@@ -236,6 +236,6 @@ static class PortGraphChecks
     {
         if(args.Length==4&&args[0]=="--replay-capture"){try{ReplayCaptured(args[1],args[2],args[3]);}catch(Exception e){Console.Error.WriteLine(e.Message);Environment.ExitCode=1;}return;}
         if(args.Length>0&&args[0]=="--fixture-only"){PortGraphFixtures.WriteArtifacts(args.Length>1?args[1]:"artifacts");Console.WriteLine("Synthetic IFC, mesh manifest and expected lengths written.");return;}
-        string artifacts=args.Length>0?args[0]:null;PureGraph();ConnectivityRegressions();GeometryCases();FoldedAndSleeveCases();FullMeshRoute(artifacts);if(artifacts!=null)PortGraphFixtures.WriteArtifacts(artifacts);Console.WriteLine("RESULT: "+count+" port graph checks passed.");
+        string artifacts=args.Length>0?args[0]:null;PureGraph();ConnectivityRegressions();GeometryCases();FoldedAndSleeveCases();GapBridgeCases();FullMeshRoute(artifacts);if(artifacts!=null){PortGraphFixtures.WriteArtifacts(artifacts);PortGraphFixtures.WriteGapBridgeArtifacts(artifacts);}Console.WriteLine("RESULT: "+count+" port graph checks passed.");
     }
 }

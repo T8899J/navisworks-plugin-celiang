@@ -15,12 +15,14 @@ namespace TrayRouteExperiment
         public bool RequiresReview;
         public double SurfaceGap;
         public double OverlapLength;
+        public double GapDistance,LateralOffset,VerticalOffset;
         // A sleeve join is stationed inside both terminal edges. Retain the physical
         // socket identities separately for ambiguity detection and side-entry exclusion.
         public int SocketPortA=-1,SocketPortB=-1;
         public Vec ConnectionPoint;
         public bool IsSideEntry { get { return Kind=="branch-to-middle"; } }
-        public double ConnectionLength { get { return (A.Point-(IsSideEntry?ConnectionPoint:B.Point)).Norm; } }
+        public bool IsGapBridge { get { return Kind=="gap-bridge"; } }
+        public double ConnectionLength { get { return IsGapBridge?GapDistance:(A.Point-(IsSideEntry?ConnectionPoint:B.Point)).Norm; } }
         public double AccessLength { get { return IsSideEntry?(ConnectionPoint-B.Point).Norm:0; } }
         // Compatibility summary only. A graph ConnectionEdge uses the small ConnectionLength.
         public double Length { get { return ConnectionLength+AccessLength; } }
@@ -39,6 +41,8 @@ namespace TrayRouteExperiment
     public sealed class CableRoute
     {
         public double Length;
+        public int GapBridgeCount;
+        public double GapBridgeLength;
         public List<CableStep> Steps,InternalEdges;
         public bool RequiresReview;
         public int[] Pieces;
@@ -53,14 +57,21 @@ namespace TrayRouteExperiment
         public readonly List<CableGraphNode> GraphNodes;
         public readonly List<CableGraphEdge> GraphEdges;
         public readonly double Tolerance;
+        public double PhysicalTolerance { get { return Tolerance; } }
+        public readonly double GapBridgeMaxDistance,GapBridgeWidthAxisTolerance,GapBridgeHeightAxisTolerance,GapBridgeSizeTolerance;
         static readonly double CosAngle=Math.Cos(Math.PI/60);
         const double PositionEpsilon=1e-7;
-        public CableNetwork(List<CablePiece> pieces,double tolerance=.002)
+        public CableNetwork(List<CablePiece> pieces,double tolerance=.002,CableNetworkOptions options=null)
         {
             if(!Vec.IsFinite(tolerance)||tolerance<=0||tolerance>.02)throw new ArgumentOutOfRangeException("tolerance");
+            options=options??new CableNetworkOptions();
+            foreach(var setting in new[]{options.GapBridgeMaxDistance,options.GapBridgeWidthAxisTolerance,options.GapBridgeHeightAxisTolerance,options.GapBridgeSizeTolerance})
+                if(!Vec.IsFinite(setting)||setting<0)throw new ArgumentOutOfRangeException("options","Gap bridge distances and tolerances must be finite, non-negative world metres.");
             if(pieces==null)throw new ArgumentNullException("pieces");
             if(pieces.Count>2000)throw new InvalidOperationException("本次网络超过 2000 个可识别构件，请缩小范围");
             Pieces=pieces;Tolerance=tolerance;
+            GapBridgeMaxDistance=options.GapBridgeMaxDistance;GapBridgeWidthAxisTolerance=options.GapBridgeWidthAxisTolerance;
+            GapBridgeHeightAxisTolerance=options.GapBridgeHeightAxisTolerance;GapBridgeSizeTolerance=options.GapBridgeSizeTolerance;
             for(int i=0;i<Pieces.Count;i++)ValidatePart(i);
             BuildJoins();var graph=BuildGraph(null,null);GraphNodes=graph.Nodes;GraphEdges=graph.Edges;
         }
@@ -209,7 +220,62 @@ namespace TrayRouteExperiment
                     sides.Add(new CableJoin{A=source,B=target,Kind="branch-to-middle",RequiresReview=true,ReviewReason="分支端口接近主路侧面；侧壁开口、内部接入中心线与实际可穿缆性需复核",SurfaceGap=gap,ConnectionPoint=sidePoint});
                 }
             }
-            foreach(var group in sides.GroupBy(j=>Socket(j.A))){if(group.Count()!=1){Ambiguities.Add("分支接入多个主路候选: "+Label(group.First().A.Piece));continue;}Joins.Add(group.Single());}
+            var occupied=new HashSet<string>(endCounts.Keys,StringComparer.Ordinal);
+            foreach(var group in sides.GroupBy(j=>Socket(j.A))){occupied.Add(group.Key);if(group.Count()!=1){Ambiguities.Add("分支接入多个主路候选: "+Label(group.First().A.Piece));continue;}Joins.Add(group.Single());}
+            BuildGapBridges(occupied);
+        }
+        void BuildGapBridges(HashSet<string> occupied)
+        {
+            if(GapBridgeMaxDistance<=PhysicalTolerance)return;
+            // Only free sockets on real straight centreline geometry participate. Keep physical
+            // ambiguity reserved too: a gap must never bypass a conflicting physical connection.
+            var free=new List<CableLocation>();
+            for(int piece=0;piece<Pieces.Count;piece++)
+            {
+                Vec axis,widthAxis,heightAxis;double width,height;
+                if(!StraightFrame(Pieces[piece],out axis,out widthAxis,out heightAxis,out width,out height))continue;
+                for(int port=0;port<Pieces[piece].Shape.Ports.Length;port++)
+                {
+                    var location=AtPort(piece,port);var socket=Pieces[piece].Shape.Ports[port];
+                    var inward=location.Station==0?axis:axis*(-1);
+                    if(!occupied.Contains(Socket(location))&&HasUsableFrame(socket)&&socket.Outward.Dot(inward)<-CosAngle)free.Add(location);
+                }
+            }
+            var candidates=new List<CableJoin>();var counts=new Dictionary<string,int>(StringComparer.Ordinal);
+            for(int i=0;i<free.Count;i++)for(int j=i+1;j<free.Count;j++)
+            {
+                if(free[i].Piece==free[j].Piece)continue;CableJoin candidate;
+                if(!TryGapBridge(free[i],free[j],out candidate))continue;
+                candidates.Add(candidate);
+                foreach(var socket in new[]{Socket(candidate.A),Socket(candidate.B)}){int count;counts.TryGetValue(socket,out count);counts[socket]=count+1;}
+            }
+            // Evaluate the whole candidate set before accepting anything. Uniqueness must hold
+            // at BOTH ends; nearest-first or greedy pairing can silently choose a wrong tray.
+            foreach(var candidate in candidates)
+            {
+                if(counts[Socket(candidate.A)]!=1||counts[Socket(candidate.B)]!=1)
+                {
+                    Ambiguities.Add("断截端口存在多个合法候选: "+Label(candidate.A.Piece)+" / "+Pieces[candidate.A.Piece].Shape.Ports[candidate.A.Port].Id+
+                        " ("+counts[Socket(candidate.A)]+") -> "+Label(candidate.B.Piece)+" / "+Pieces[candidate.B.Piece].Shape.Ports[candidate.B.Port].Id+" ("+counts[Socket(candidate.B)]+")");
+                    continue;
+                }
+                Joins.Add(candidate);
+            }
+        }
+        bool TryGapBridge(CableLocation a,CableLocation b,out CableJoin join)
+        {
+            join=null;var p=Pieces[a.Piece].Shape.Ports[a.Port];var q=Pieces[b.Piece].Shape.Ports[b.Port];
+            var delta=q.Point-p.Point;double gap=delta.Norm;
+            if(gap<=PhysicalTolerance||gap>GapBridgeMaxDistance+1e-10||p.Outward.Dot(q.Outward)>-CosAngle)return false;
+            if(delta.Dot(p.Outward)/gap<CosAngle||(delta*(-1)).Dot(q.Outward)/gap<CosAngle)return false;
+            if(Math.Abs(p.Width-q.Width)>GapBridgeSizeTolerance||Math.Abs(p.Height-q.Height)>GapBridgeSizeTolerance||CrossSectionRollDiffers(p,q))return false;
+            double lateral=Math.Max(Math.Abs(delta.Dot(p.WidthAxis)/p.WidthAxis.Norm),Math.Abs(delta.Dot(q.WidthAxis)/q.WidthAxis.Norm));
+            double vertical=Math.Max(Math.Abs(delta.Dot(p.HeightAxis)/p.HeightAxis.Norm),Math.Abs(delta.Dot(q.HeightAxis)/q.HeightAxis.Norm));
+            if(lateral>GapBridgeWidthAxisTolerance||vertical>GapBridgeHeightAxisTolerance)return false;
+            join=new CableJoin{A=a,B=b,Kind="gap-bridge",GapDistance=gap,LateralOffset=lateral,VerticalOffset=vertical,SurfaceGap=gap,
+                ConnectionPoint=q.Point,RequiresReview=true,ReviewReason="直线断截桥接待复核: gap="+(gap*1000).ToString("0.000",CultureInfo.InvariantCulture)+
+                    " mm; 横向偏差="+(lateral*1000).ToString("0.000",CultureInfo.InvariantCulture)+" mm; 竖向偏差="+(vertical*1000).ToString("0.000",CultureInfo.InvariantCulture)+" mm"};
+            return true;
         }
         bool TrySleeveJoin(int a,int portA,int b,int portB,out CableJoin join)
         {
@@ -269,7 +335,7 @@ namespace TrayRouteExperiment
             {
                 var j=Joins[i];int a=stationNode(j.A),b=stationNode(j.B),connectionB=b;
                 if(j.IsSideEntry){connectionB=addNode(j.B.Piece,"$side-port:"+i,CableNodeKind.Port,j.ConnectionPoint);addEdge(new CableGraphEdge{From=connectionB,To=b,Piece=j.B.Piece,InternalEdge=-1,EdgeId="$side-access:"+i,Kind=CableEdgeKind.InternalEdge,Length=j.AccessLength,FromStation=0,ToStation=j.AccessLength,Centerline=new[]{j.ConnectionPoint,j.B.Point},RequiresReview=true,ReviewReason=j.ReviewReason});}
-                addEdge(new CableGraphEdge{From=a,To=connectionB,Piece=-1,InternalEdge=-1,EdgeId="$connection:"+i,Kind=CableEdgeKind.ConnectionEdge,Length=j.ConnectionLength,Centerline=new[]{j.A.Point,g.Nodes[connectionB].Point},RequiresReview=j.RequiresReview,ReviewReason=j.ReviewReason,Join=j});
+                addEdge(new CableGraphEdge{From=a,To=connectionB,Piece=-1,InternalEdge=-1,EdgeId=(j.IsGapBridge?"$gap-bridge:":"$connection:")+i,Kind=j.IsGapBridge?CableEdgeKind.GapBridgeEdge:CableEdgeKind.ConnectionEdge,Length=j.ConnectionLength,Centerline=new[]{j.IsGapBridge?g.Nodes[a].Point:j.A.Point,g.Nodes[connectionB].Point},RequiresReview=j.RequiresReview,ReviewReason=j.ReviewReason,Join=j});
             }
             if(start!=null)g.Start=stationNode(start);if(finish!=null)g.Finish=stationNode(finish);
             for(int p=0;p<Pieces.Count;p++)for(int e=0;e<Pieces[p].Shape.InternalEdges.Length;e++)
@@ -284,12 +350,16 @@ namespace TrayRouteExperiment
             if(start==null||finish==null)throw new ArgumentNullException(start==null?"start":"finish");
             // Resolve XYZ from the actual internal edge, never trust caller-supplied coordinates.
             start=At(start.Piece,start.Edge,start.Station);finish=At(finish.Piece,finish.Edge,finish.Station);var graph=BuildGraph(start,finish);int count=graph.Nodes.Count;
-            var distances=Enumerable.Repeat(double.PositiveInfinity,count).ToArray();var prior=new CableGraphEdge[count];var visited=new bool[count];var adjacency=Enumerable.Range(0,count).Select(i=>new List<CableGraphEdge>()).ToArray();
-            foreach(var edge in graph.Edges){if(!allowCandidates&&edge.RequiresReview)continue;adjacency[edge.From].Add(edge);adjacency[edge.To].Add(edge);}distances[graph.Start]=0;
+            var distances=Enumerable.Repeat(double.PositiveInfinity,count).ToArray();var gaps=Enumerable.Repeat(int.MaxValue,count).ToArray();
+            var prior=new CableGraphEdge[count];var visited=new bool[count];var adjacency=Enumerable.Range(0,count).Select(i=>new List<CableGraphEdge>()).ToArray();
+            foreach(var edge in graph.Edges){if(!allowCandidates&&edge.RequiresReview)continue;adjacency[edge.From].Add(edge);adjacency[edge.To].Add(edge);}distances[graph.Start]=0;gaps[graph.Start]=0;
+            // Lexicographic Dijkstra: minimise gap count first, then real physical length.
+            // Never add a fictitious length penalty to make a review route look longer.
+            Func<int,double,int,double,bool> better=(gap,length,otherGap,otherLength)=>gap<otherGap||(gap==otherGap&&length<otherLength);
             for(int iteration=0;iteration<count;iteration++)
             {
-                int a=-1;for(int i=0;i<count;i++)if(!visited[i]&&(a<0||distances[i]<distances[a]))a=i;if(a<0||double.IsInfinity(distances[a])||a==graph.Finish)break;visited[a]=true;
-                foreach(var edge in adjacency[a]){int b=edge.From==a?edge.To:edge.From;double distance=distances[a]+edge.Length;if(distance<distances[b]){distances[b]=distance;prior[b]=edge;}}
+                int a=-1;for(int i=0;i<count;i++)if(!visited[i]&&(a<0||better(gaps[i],distances[i],gaps[a],distances[a])))a=i;if(a<0||double.IsInfinity(distances[a])||a==graph.Finish)break;visited[a]=true;
+                foreach(var edge in adjacency[a]){int b=edge.From==a?edge.To:edge.From;if(visited[b])continue;double distance=distances[a]+edge.Length;int gap=gaps[a]+(edge.Kind==CableEdgeKind.GapBridgeEdge?1:0);if(better(gap,distance,gaps[b],distances[b])){distances[b]=distance;gaps[b]=gap;prior[b]=edge;}}
             }
             if(double.IsInfinity(distances[graph.Finish]))throw new InvalidOperationException("未找到连续的 Port/Junction 路径；可能存在未识别配件、接入间隙或待复核连接");
             var steps=new List<CableStep>();int current=graph.Finish;
@@ -298,7 +368,7 @@ namespace TrayRouteExperiment
                 var e=prior[current];bool forward=e.To==current;steps.Add(new CableStep{Piece=e.Piece,Edge=e.InternalEdge,EdgeId=e.EdgeId,Kind=e.Kind,From=forward?e.FromStation:e.ToStation,To=forward?e.ToStation:e.FromStation,A=graph.Nodes[forward?e.From:e.To].Point,B=graph.Nodes[forward?e.To:e.From].Point,Centerline=forward?e.Centerline.ToArray():e.Centerline.Reverse().ToArray(),Length=e.Length,Join=e.Join,RequiresReview=e.RequiresReview,ReviewReason=e.ReviewReason});current=forward?e.From:e.To;
             }
             steps.Reverse();var ids=steps.Where(s=>s.Piece>=0).Select(s=>s.Piece).Concat(new[]{start.Piece,finish.Piece}).Distinct().ToArray();var internals=steps.Where(s=>s.Kind==CableEdgeKind.InternalEdge).ToList();
-            return new CableRoute{Length=distances[graph.Finish],Steps=steps,Pieces=ids,RequiresReview=steps.Any(s=>s.RequiresReview),InternalEdges=internals,ReviewConnections=steps.Where(s=>s.Join!=null&&s.RequiresReview).Select(s=>s.Join).Distinct().ToList(),FittingContributions=internals.Where(s=>IsFitting(Pieces[s.Piece].Shape)).GroupBy(s=>s.Piece).Select(group=>new CableFittingContribution{Piece=group.Key,Name=Pieces[group.Key].Shape.Name,Kind=Pieces[group.Key].Shape.Kind,Length=group.Sum(s=>s.Length),EdgeIds=group.Select(s=>s.EdgeId).Distinct().ToArray()}).ToList()};
+            return new CableRoute{Length=distances[graph.Finish],GapBridgeCount=gaps[graph.Finish],GapBridgeLength=steps.Where(s=>s.Kind==CableEdgeKind.GapBridgeEdge).Sum(s=>s.Length),Steps=steps,Pieces=ids,RequiresReview=steps.Any(s=>s.RequiresReview),InternalEdges=internals,ReviewConnections=steps.Where(s=>s.Join!=null&&s.RequiresReview).Select(s=>s.Join).Distinct().ToList(),FittingContributions=internals.Where(s=>IsFitting(Pieces[s.Piece].Shape)).GroupBy(s=>s.Piece).Select(group=>new CableFittingContribution{Piece=group.Key,Name=Pieces[group.Key].Shape.Name,Kind=Pieces[group.Key].Shape.Kind,Length=group.Sum(s=>s.Length),EdgeIds=group.Select(s=>s.EdgeId).Distinct().ToArray()}).ToList()};
         }
         static bool IsFitting(Part p){string kind=(p.Kind??"").ToLowerInvariant();return kind!="straight"&&kind!="slope"&&kind!="slopestraight";}
     }

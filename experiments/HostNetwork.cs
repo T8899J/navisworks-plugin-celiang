@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
+using System.Web.Script.Serialization;
 using Autodesk.Navisworks.Api;
 using Autodesk.Navisworks.Api.ComApi;
 using JiePinPai.TrayMeasurement;
@@ -195,7 +197,16 @@ namespace TrayRouteExperiment
             return Graph.Pieces.FindIndex(p => p.Shape.Id == id);
         }
 
-        public static HostNetwork Read(Document document, ModelItem selected)
+        static CableNetworkOptions ReadNetworkOptions()
+        {
+            var path=Path.Combine(Path.GetDirectoryName(typeof(HostNetwork).Assembly.Location),"cable-path-settings.json");
+            if(!File.Exists(path))return new CableNetworkOptions();
+            var options=new JavaScriptSerializer().Deserialize<CableNetworkOptions>(File.ReadAllText(path));
+            if(options==null)throw new InvalidOperationException("电缆路径配置为空: "+path);
+            return options;
+        }
+
+        public static HostNetwork Read(Document document, ModelItem selected,CableNetworkOptions options=null)
         {
             // Metadata discovers components. It never partitions the physical connection graph by name or run.
             var roots = document.Models.RootItems.ToArray();
@@ -239,7 +250,7 @@ namespace TrayRouteExperiment
                     n.Rejected.Add(info);
                 }
             }
-            n.Graph = new CableNetwork(pieces);
+            n.Graph = new CableNetwork(pieces,options:options??ReadNetworkOptions());
             return n;
         }
     }

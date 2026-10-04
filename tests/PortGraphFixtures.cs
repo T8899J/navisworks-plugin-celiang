@@ -158,6 +158,18 @@ public static class PortGraphFixtures
         File.WriteAllText(Path.Combine(directory,"port-graph-fixture.json"),JsonSerializer.Serialize(new{synthetic=true,units="metres",startName=chain[0].Name,finishName=chain.Last().Name,start=Start,finish=Finish,expectedRouteLength=ExpectedRouteLength,expectedContributions=new[]{1.5,1,1.5,ArcLength(1,Math.PI/2),2,1,1.5},items=chain},json));
         File.WriteAllText(Path.Combine(directory,"port-graph-fixture.ifc"),Ifc(chain),Encoding.ASCII);
     }
+    public static void WriteGapBridgeArtifacts(string directory)
+    {
+        Directory.CreateDirectory(directory);var origin=new Vec(8,5,3);var direction=Unit(new Vec(1,2,3));
+        var parts=new List<MeshFixture>{
+            new MeshFixture{Name="Fixture-Gap-Tray-A",RunName="Gap-Run-A",Description="Slope",Size="400 x 100 mm",Mesh=Straight(origin,origin+direction),ExpectedWholeLength=1},
+            new MeshFixture{Name="Fixture-Gap-Tray-B",RunName="Gap-Run-B",Description="Slope",Size="400 x 100 mm",Mesh=Straight(origin+direction*1.03,origin+direction*2.03),ExpectedWholeLength=1}
+        };
+        File.WriteAllText(Path.Combine(directory,"gap-bridge-fixture.json"),JsonSerializer.Serialize(new{synthetic=true,units="metres",
+            startName=parts[0].Name,finishName=parts[1].Name,start=origin,finish=origin+direction*2.03,
+            expectedRouteLength=2.03,expectedContributions=new[]{1.0,1.0},expectedGapCount=1,expectedGapLength=.03,items=parts},new JsonSerializerOptions{IncludeFields=true,WriteIndented=true}));
+        File.WriteAllText(Path.Combine(directory,"gap-bridge-fixture.ifc"),Ifc(parts),Encoding.ASCII);
+    }
     static string Ifc(List<MeshFixture> fixtures)
     {
         var e=new List<string>();Func<string,string> add=body=>{e.Add("#"+(e.Count+1)+"="+body+";");return "#"+e.Count;};
