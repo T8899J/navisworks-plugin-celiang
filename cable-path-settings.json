@@ -5,5 +5,11 @@
   "GapBridgeSizeTolerance": 0.003,
   "VirtualConnectorMaxDistance": 0.5,
   "VirtualConnectorExperimentalTopN": true,
-  "VirtualConnectorTopN": 5
+  "VirtualConnectorTopN": 5,
+  "VirtualConnectorMaxAngle": 0,
+  "VirtualConnectorRejectParallelOffset": true,
+  "SpatialRegionMargin": 20,
+  "SpatialRegionMaxMargin": 160,
+  "MaxPieces": 2000,
+  "StraightStubByNominalSection": false
 }

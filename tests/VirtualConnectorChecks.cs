@@ -151,6 +151,7 @@ static partial class PortGraphChecks
         Check(VirtualEdges(n).Single().Join.VirtualConnector.Kind==VirtualConnectorKind.PortToPort3D,"existing fitting ports may participate without assuming two ports per part");
 
         VirtualCostCases();
+        VirtualFilterCases();
         if(artifacts!=null)
         {
             Directory.CreateDirectory(artifacts);
@@ -158,6 +159,33 @@ static partial class PortGraphChecks
                 synthetic=true,physicalComponents=n.PhysicalPieceComponents,candidates=n.VirtualConnectorCandidates,graphNodes=n.GraphNodes,graphEdges=n.GraphEdges,
                 result=n.Find(n.AtPort(0,0),n.AtPort(1,1))},new JsonSerializerOptions{IncludeFields=true,WriteIndented=true}));
         }
+    }
+
+    static void VirtualFilterCases()
+    {
+        CableNetwork Filtered(double angle,bool parallel,params CablePiece[] pieces)=>new CableNetwork(pieces.ToList(),options:new CableNetworkOptions{
+            VirtualConnectorMaxDistance=.5,VirtualConnectorExperimentalTopN=true,VirtualConnectorMaxAngle=angle,VirtualConnectorRejectParallelOffset=parallel});
+        var a=Line("filter-a",new Vec(),new Vec(2,0,0),.2);
+        Check(VirtualEdges(Filtered(60,true,a,Line("aligned",new Vec(2.3,0,0),new Vec(4,0,0),.2))).Length==1,"aligned gap passes direction and parallel filters");
+
+        var side=Line("side-by-side",new Vec(2,.3,0),new Vec(4,.3,0),.2);
+        Check(VirtualEdges(Filtered(0,false,a,side)).Length==1,"filters are disabled by default");
+        var n=Filtered(60,false,a,side);Check(VirtualEdges(n).Length==0&&n.VirtualConnectorDirectionRejected>0,"90 degree side jump is rejected by the direction cone");
+        n=Filtered(0,true,a,side);Check(VirtualEdges(n).Length==0&&n.VirtualConnectorParallelRejected>0,"side jump between parallel trays is rejected by the parallel offset rule");
+        var diagnostics=n.DiagnoseConnectivity(n.AtPort(0,0),n.AtPort(1,1));
+        Check(diagnostics.Candidates.Any(d=>d.TargetPiece==1),"failure diagnostics still list candidates removed by graph filters");
+
+        var offset=Line("parallel-offset",new Vec(2.35,.2,0),new Vec(4,.2,0),.2);
+        Check(VirtualEdges(Filtered(60,false,a,offset)).Length==1,"35 degree parallel offset passes the 60 degree cone alone");
+        n=Filtered(60,true,a,offset);Check(VirtualEdges(n).Length==0&&n.VirtualConnectorParallelRejected>0,"parallel trays offset beyond half a width are rejected");
+
+        var elbow=Line("missing-45-elbow",new Vec(2.15,.15,0),new Vec(2.85,.85,0),.2);
+        n=Filtered(60,true,a,elbow);Check(VirtualEdges(n).Length==1,"gap of a missing 45 degree elbow remains a candidate");
+        var route=n.Find(n.AtPort(0,0),n.AtPort(1,1));Check(route.VirtualConnectorCount==1&&route.RequiresReview,"filtered candidate still yields a review route");
+
+        var stacked=Line("stacked-main",new Vec(1,-.5,.225),new Vec(3,-.5,.225),.2);var branch=Line("stacked-branch",new Vec(2,-1.5,0),new Vec(2,-.5,0),.2);
+        Check(VirtualEdges(Filtered(0,false,branch,stacked)).Any(e=>e.Join.VirtualConnector.Kind==VirtualConnectorKind.PortToSegment3D),"unfiltered port jumps vertically onto a stacked tray");
+        Check(!VirtualEdges(Filtered(60,true,branch,stacked)).Any(e=>e.Join.VirtualConnector.Kind==VirtualConnectorKind.PortToSegment3D),"vertical jump perpendicular to the port is rejected");
     }
 
     static void VirtualCostCases(bool experimental=false)

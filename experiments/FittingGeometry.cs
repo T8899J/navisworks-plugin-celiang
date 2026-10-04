@@ -22,6 +22,8 @@ namespace TrayRouteExperiment
         {
             var s = (text ?? "").ToLowerInvariant();
             // Token boundaries matter: Stainless Steel contains the letters "tee".
+            // Splice connectors join two tray ends; they have no centreline of their own and only become joint hints.
+            if (Regex.IsMatch(s, @"\bsplice\b") || s.Contains("连接片") || s.Contains("连接板")) return "SpliceConnector";
             if (Regex.IsMatch(s, @"\bcross\b") || s.Contains("四通")) return "Cross";
             if (Regex.IsMatch(s, @"\btee\b") || s.Contains("三通")) return "Tee";
             if (s.Contains("reduc") || s.Contains("变径") || s.Contains("变宽")) return "Reducer";
@@ -45,7 +47,7 @@ namespace TrayRouteExperiment
             return family;
         }
 
-        public static Part Build(IList<Triangle> mesh, string classification)
+        public static Part Build(IList<Triangle> mesh, string classification, double nominalWidth = 0, double nominalHeight = 0)
         {
             if (mesh == null || mesh.Count == 0) throw Fail("NO_GEOMETRY", "没有三角网格");
             if (mesh.Count > 200000) throw Fail("GEOMETRY_LIMIT", "三角面数量超过 200000");
@@ -53,7 +55,7 @@ namespace TrayRouteExperiment
                 throw Fail("INVALID_COORDINATE", "网格含非有限坐标");
             var kind = classification ?? "Unknown";
             if (kind.Equals("Straight", StringComparison.OrdinalIgnoreCase) || kind.Equals("Slope", StringComparison.OrdinalIgnoreCase))
-                return Straight(mesh, kind);
+                return Straight(mesh, kind, nominalWidth, nominalHeight);
             if (kind.StartsWith("Elbow", StringComparison.OrdinalIgnoreCase) || kind.StartsWith("Riser", StringComparison.OrdinalIgnoreCase))
                 return Bend(mesh, kind);
             if (kind.Equals("Reducer", StringComparison.OrdinalIgnoreCase)) return Reducer(mesh);
@@ -63,14 +65,61 @@ namespace TrayRouteExperiment
             throw Fail("UNCLASSIFIED", "无法确定配件几何重建类型");
         }
 
-        static Part Straight(IList<Triangle> mesh, string kind)
+        static Part Straight(IList<Triangle> mesh, string kind, double nominalWidth = 0, double nominalHeight = 0)
         {
             var m = StraightMeasurement.Measure(mesh, true);
-            if (!m.IsStraightCandidate) throw Fail("STRAIGHT_SECTION_FAILED", m.Reason);
+            if (!m.IsStraightCandidate)
+            {
+                var stub = NominalStub(mesh, nominalWidth, nominalHeight);
+                if (stub == null) throw Fail("STRAIGHT_SECTION_FAILED", m.Reason + string.Format(System.Globalization.CultureInfo.InvariantCulture, " [tri={0} nominal={1:F3}x{2:F3} span={3:F4} w={4:F4} h={5:F4}]", mesh.Count, nominalWidth, nominalHeight, m.SpanMetres, m.WidthMetres, m.HeightMetres));
+                m = stub;
+            }
             var p = TwoPort(kind, new[] { m.PortStart, m.PortEnd }, m.Axis * -1, m.Axis,
                 m.WidthMetres, m.HeightMetres, m.WidthMetres, m.HeightMetres,
                 m.CrossAxis1, m.CrossAxis2, m.CrossAxis1, m.CrossAxis2);
             return p;
+        }
+
+        // Short cut-down stubs (span close to or below the cross-section) defeat PCA. Try each pair of
+        // orthogonal dominant face normals as the cross-section frame; the remaining axis is longitudinal.
+        // Accept only when exactly one frame has a continuous section whose height matches the nominal
+        // Size and whose width is at least the nominal width (measured width includes flanges).
+        const double NominalTolerance = .005;
+        static Measurement NominalStub(IList<Triangle> mesh, double nominalWidth, double nominalHeight)
+        {
+            if (nominalWidth <= 0 || nominalHeight <= 0) return null;
+            var normals = mesh.Where(t => t.Area > 1e-10).GroupBy(t => DirectionKey(Unit((t.B - t.A).Cross(t.C - t.A))))
+                .Select(g => new { n = g.Key, area = g.Sum(t => t.Area) }).OrderByDescending(g => g.area).Take(6).Select(g => g.n).ToList();
+            var accepted = new List<Measurement>();
+            var tried = new List<Vec>();
+            foreach (var a in normals) foreach (var b in normals)
+            {
+                if (Math.Abs(a.Dot(b)) > 1e-3) continue;
+                var axis = Unit(a.Cross(b));
+                if (tried.Any(t => Math.Abs(t.Dot(axis)) > 1 - 1e-6)) continue;
+                tried.Add(axis);
+                var m = StraightMeasurement.MeasureFrame(mesh, axis, a, b);
+                if (!m.IsStraightCandidate) continue;
+                // Orient so CrossAxis2 carries the nominal height.
+                bool swap = Math.Abs(m.WidthMetres - nominalHeight) <= NominalTolerance && Math.Abs(m.HeightMetres - nominalHeight) > NominalTolerance;
+                if (swap) m = StraightMeasurement.MeasureFrame(mesh, axis * -1, b, a);
+                if (Math.Abs(m.HeightMetres - nominalHeight) <= NominalTolerance && m.WidthMetres >= nominalWidth - NominalTolerance && m.SpanMetres > NominalTolerance)
+                {
+                    // Same length-to-section requirement as the PCA path: a piece shorter than its own
+                    // widest side is a plate or fragment, not a tray run, however well its section matches.
+                    double crossSpan = Math.Max(m.WidthMetres, m.HeightMetres);
+                    if (m.SpanMetres < crossSpan * 1.15) continue;
+                    accepted.Add(m);
+                }
+            }
+            return accepted.Count == 1 ? accepted[0] : null;
+        }
+
+        static Vec DirectionKey(Vec n)
+        {
+            // Opposite faces share one axis; quantise so coplanar triangles group together.
+            if (n.X < -1e-9 || Math.Abs(n.X) <= 1e-9 && (n.Y < -1e-9 || Math.Abs(n.Y) <= 1e-9 && n.Z < 0)) n = n * -1;
+            return Unit(new Vec(Math.Round(n.X, 4), Math.Round(n.Y, 4), Math.Round(n.Z, 4)));
         }
 
         static Part Bend(IList<Triangle> mesh, string kind)

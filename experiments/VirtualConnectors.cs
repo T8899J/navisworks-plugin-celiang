@@ -93,6 +93,35 @@ namespace TrayRouteExperiment
             return new VirtualProposal{A=a,B=b,Diagnostic=d};
         }
 
+        const double ParallelAngleDegrees=15;
+        // Geometric plausibility of a virtual connector; filters only graph candidates, never diagnostics.
+        bool PassesVirtualFilters(VirtualProposal proposal)
+        {
+            var d=proposal.Diagnostic;
+            if(VirtualConnectorMaxAngle>0)
+            {
+                bool tooWide=d.SourceDirectionAngleDegrees.HasValue&&d.SourceDirectionAngleDegrees.Value>VirtualConnectorMaxAngle+1e-9||
+                    d.Kind==VirtualConnectorKind.PortToPort3D&&d.TargetDirectionAngleDegrees.HasValue&&d.TargetDirectionAngleDegrees.Value>VirtualConnectorMaxAngle+1e-9;
+                if(tooWide){VirtualConnectorDirectionRejected++;return false;}
+            }
+            if(VirtualConnectorRejectParallelOffset)
+            {
+                var source=Pieces[d.SourcePiece].Shape.Ports[d.SourcePort].Outward;
+                Vec target;
+                if(d.Kind==VirtualConnectorKind.PortToPort3D)target=Pieces[d.TargetPiece].Shape.Ports[d.TargetPort].Outward;
+                else{var line=Pieces[d.TargetPiece].Shape.InternalEdges[d.TargetEdge].Centerline;target=line.Last()-line[0];}
+                double? axisAngle=DirectionAngle(source,target);
+                bool parallel=axisAngle.HasValue&&(axisAngle.Value<=ParallelAngleDegrees||axisAngle.Value>=180-ParallelAngleDegrees);
+                if(parallel&&source.Norm>1e-15)
+                {
+                    var axis=source*(1/source.Norm);var delta=proposal.B.Point-proposal.A.Point;
+                    double lateral=(delta-axis*delta.Dot(axis)).Norm;
+                    if(lateral>Math.Max(d.SourceWidth,d.TargetWidth)/2){VirtualConnectorParallelRejected++;return false;}
+                }
+            }
+            return true;
+        }
+
         void BuildVirtualConnectors(HashSet<string> occupied)
         {
             if(VirtualConnectorMaxDistance<=0)return;
@@ -105,6 +134,7 @@ namespace TrayRouteExperiment
             var proposals=new List<VirtualProposal>();
             Action<VirtualProposal> add=proposal=>{
                 var d=proposal.Diagnostic;if(!Vec.IsFinite(d.Distance3D)||d.Distance3D>VirtualConnectorMaxDistance+1e-10)return;
+                if(!PassesVirtualFilters(proposal))return;
                 VirtualConnectorCandidates.Add(d);
                 if(d.SourcePhysicalComponent==d.TargetPhysicalComponent)
                 {d.Status="SkippedSamePhysicalComponent";d.Reason="已通过真实 InternalEdge / ConnectionEdge 连通，不创建虚拟捷径";return;}

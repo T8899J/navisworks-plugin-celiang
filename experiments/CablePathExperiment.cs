@@ -87,8 +87,8 @@ namespace TrayRouteExperiment
         readonly Font resultFont=new Font("Segoe UI",38,FontStyle.Bold);
         HostNetwork network;Document doc;ModelItem originalRoot;Viewpoint originalView;ModelItemCollection originalSelection;
         readonly List<ModelItem> hidden=new List<ModelItem>();
-        CableLocation start,finish;bool pickingStart;Tool priorTool;string priorCustom;
-        string reportPath;int pickedPoints;
+        CableLocation start,finish;string startId;Vec startPoint;bool pickingStart;Tool priorTool;string priorCustom;
+        string reportPath;int pickedPoints;List<VirtualConnectorSuspect> virtualConnectorSuspects;
         public CableForm()
         {
             Text="电缆路径 V13（端口图实验）";ClientSize=new Size(460,338);Font=new Font("Microsoft YaHei UI",10);AutoScaleMode=AutoScaleMode.Dpi;AutoScaleDimensions=new SizeF(96,96);
@@ -124,12 +124,12 @@ namespace TrayRouteExperiment
         void Check(){if(doc==null||doc!=NavApp.ActiveDocument||doc.IsClear||!doc.Models.RootItems.Any(x=>x.Equals(originalRoot)))throw new InvalidOperationException("模型已变化，请重新打开实验窗口");}
         void EnsureNetwork(ModelItem item)
         {
-            Remember();if(network!=null){if(!network.Valid())throw new InvalidOperationException("模型已变化");return;}
+            Remember();if(network!=null&&network.Region==null){if(!network.Valid())throw new InvalidOperationException("模型已变化");return;}
             Reveal();caption.Text="正在读取桥架连接…";number.Text="—";Refresh();network=HostNetwork.Read(doc,item);SaveReport(null);
         }
         void BeginPick(bool first)
         {
-            Remember();if(!first&&start==null)throw new InvalidOperationException("请先选择起点");
+            Remember();if(!first&&startId==null)throw new InvalidOperationException("请先选择起点");
             CancelPick();pickingStart=first;priorTool=doc.Tool.Value;priorCustom=doc.Tool.CustomToolPluginId;
             CablePicker.Target=this;var record=(ToolPluginRecord)NavApp.Plugins.FindPlugin("CablePointPickerV13.JPPM");doc.Tool.SetCustomToolPlugin(record.LoadPlugin());
             caption.Text=first?"请在桥架上点击起点":"请在桥架上点击终点";hint.Text="Esc 取消选择";number.Text="—";
@@ -148,15 +148,36 @@ namespace TrayRouteExperiment
             if(CablePicker.Target!=this)return;bool first=pickingStart;CancelPick();
             Safe(()=>{
                 if(item.AncestorsAndSelf.Any(x=>x.DisplayName=="Maintenance Volume"))throw new InvalidOperationException("请点击桥架实体，避开检修空间");
-                EnsureNetwork(item);int index=network.Index(item);if(index<0)throw new InvalidOperationException("这个构件未通过几何识别；展开明细查看具体原因");
-                double scale=UnitConversion.ScaleFactor(doc.Units,Units.Meters);var location=network.Graph.Project(index,documentPoint*scale);pickedPoints++;
-                if(first){start=location;finish=null;ClearConnectivityDiagnostics();CableOverlay.Lines.Clear();SetOverlay();UpdateDetails(null);caption.Text="起点已记录";hint.Text="点击“选终点并测量”，再点终点";number.Text="—";}
-                else{finish=location;Display(network.Graph.Find(start,finish),false);}
+                Remember();string id=HostNetwork.Key(HostNetwork.Component(item));
+                double scale=UnitConversion.ScaleFactor(doc.Units,Units.Meters);var point=documentPoint*scale;pickedPoints++;
+                if(first){startId=id;startPoint=point;start=finish=null;ClearConnectivityDiagnostics();CableOverlay.Lines.Clear();SetOverlay();UpdateDetails(null);caption.Text="起点已记录";hint.Text="点击“选终点并测量”，再点终点";number.Text="—";}
+                else Measure(id,point);
             });
+        }
+        CableLocation Locate(HostNetwork n,string id,Vec point)
+        {
+            int index=n.Graph.Pieces.FindIndex(p=>p.Shape.Id==id);
+            if(index<0)throw new InvalidOperationException("所点构件未通过几何识别；展开明细查看具体原因");
+            return n.Graph.Project(index,point);
+        }
+        void Measure(string finishId,Vec finishPoint)
+        {
+            // Build the port graph only around the two picked points; the box grows while no route exists.
+            Reveal();caption.Text="正在按范围读取桥架连接…";number.Text="—";Refresh();
+            Func<HostNetwork,CableRoute> find=n=>{start=Locate(n,startId,startPoint);finish=Locate(n,finishId,finishPoint);return n.Graph.Find(start,finish);};
+            var settings=HostNetwork.ReadHostSettings();CableRoute route=null;
+            if(network!=null&&network.Region!=null&&network.Valid()&&settings.SpatialRegionMargin>0&&network.Region.Contains(SpatialRegion.Around(startPoint,finishPoint,settings.SpatialRegionMargin)))
+                try{route=find(network);}catch(CablePathNotFoundException){}
+            if(route==null)
+            {
+                CablePathNotFoundException failure;network=HostNetwork.ReadAround(doc,startPoint,finishPoint,find,out route,out failure);
+                if(route==null)throw failure;
+            }
+            Display(route,false);
         }
         void SetOverlay()
         {
-            CableOverlay.Document=doc;CableOverlay.Root=originalRoot;CableOverlay.Scale=UnitConversion.ScaleFactor(doc.Units,Units.Meters);CableOverlay.Start=start==null?(Vec?)null:start.Point;CableOverlay.End=finish==null?(Vec?)null:finish.Point;
+            CableOverlay.Document=doc;CableOverlay.Root=originalRoot;CableOverlay.Scale=UnitConversion.ScaleFactor(doc.Units,Units.Meters);CableOverlay.Start=start!=null?start.Point:startId!=null?startPoint:(Vec?)null;CableOverlay.End=finish==null?(Vec?)null:finish.Point;
             ((RenderPluginRecord)NavApp.Plugins.FindPlugin("CablePathOverlayV13.JPPM")).LoadPlugin();doc.ActiveView.RequestDelayedRedraw(ViewRedrawRequests.All);
         }
         public void Demo(string report,string branchName,string mainName)
@@ -200,9 +221,10 @@ namespace TrayRouteExperiment
             double fittingLength=result.FittingContributions.Sum(f=>f.Length);
             string fittingSummary=result.FittingContributions.Count==0?"本段未经过配件":
                 "已含配件 "+fittingLength.ToString("0.000")+" m · "+result.FittingContributions.Count+" 件";
+            if(result.SpliceBridgeCount>0)fittingSummary+=" · 经连接件 "+result.SpliceBridgeCount+" 处";
             if(result.VirtualConnectorCount>0)fittingSummary=(result.FittingContributions.Count==0?"":fittingSummary+" · ")+"虚拟连接 "+result.VirtualConnectorTotalLength.ToString("0.000")+" m";
-            hint.Text=fittingSummary+(network.Incomplete?" · 模型未完整提取":result.RequiresReview?" · 待复核":"");
-            UpdateDetails(result);SaveReport(result);
+            hint.Text=fittingSummary+(network.Region!=null?" · 范围 ±"+network.Region.Margin.ToString("0")+" m":"")+(network.Incomplete?" · 模型未完整提取":result.RequiresReview?" · 待复核":"");
+            virtualConnectorSuspects=network.AnnotateRoute(result);UpdateDetails(result);SaveReport(result);
         }
         void Reveal(){if(hidden.Count==0)return;Check();doc.Models.SetHidden(hidden,false);hidden.Clear();}
         void Restore(){CancelPick();if(doc==null)return;Check();Reveal();doc.CurrentSelection.CopyFrom(originalSelection);doc.CurrentViewpoint.CopyFrom(originalView);ClearConnectivityDiagnostics();CableOverlay.Lines.Clear();CableOverlay.Start=CableOverlay.End=null;doc.ActiveView.RequestDelayedRedraw(ViewRedrawRequests.All);}

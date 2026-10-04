@@ -101,6 +101,8 @@ static partial class PortGraphChecks
     static void GeometryCases()
     {
         Check(FittingGeometry.Classify("Stainless Steel Straight")=="Straight","material name containing tee letters is not a Tee");
+        Check(FittingGeometry.Classify("5CL-150 Horizontal Splice Connector (Adjustable Angle between 25-65), Stainless Steel")=="SpliceConnector","adjustable splice connector is a joint hint, not an elbow");
+        Check(FittingGeometry.Classify("5CL-150 Vertical Adjustable Splice Connector Inside, Stainless Steel")=="SpliceConnector","vertical splice connector is a joint hint, not a riser");
         Check(FittingGeometry.Classify("90Deg Riser 450 mm","Run-45501")=="Riser90","450 mm and RunName digits do not override explicit 90-degree fitting");
         Check(FittingGeometry.Classify("Elbow 450 mm","Run-45501")=="Elbow","unspecified fitting angle is not inferred from size or identifier");
         Check(FittingGeometry.Classify("Straight","Fixture-Main-Before-Elbow")=="Straight","explicit Description wins over an incidental fitting word in Name");
@@ -111,6 +113,20 @@ static partial class PortGraphChecks
         Check(shortStraight.Ports.All(p=>Math.Abs(p.Point.Z-.075)<1e-8),"U-channel ports use cross-section centre rather than surface centroid");
         Check(Math.Abs(shortStraight.InternalEdges.Single().Length-.884)<1e-8,"explicit straight classification supports a wide 884mm short segment");
         Check(!StraightMeasurement.Measure(shortChannel).IsStraightCandidate,"unclassified wide short segment remains geometrically ambiguous");
+        // A 0.25m cut-down stub of a 0.19 x 0.15 tray: PCA cannot pick the longitudinal axis.
+        var stub=PortGraphFixtures.Transform(PortGraphFixtures.Straight(new Vec(),new Vec(.25,0,0),.19,.15),p=>Unit(new Vec(1,1,0))*p.X+Unit(new Vec(-1,1,0))*p.Y+new Vec(0,0,p.Z));
+        Reject(()=>FittingGeometry.Build(stub,"Straight"),"short stub without nominal size is still rejected");
+        var stubPart=FittingGeometry.Build(stub,"Straight",.15,.15);
+        Near(stubPart.InternalEdges.Single().Length,.25,"nominal section fixes the longitudinal axis of a short stub");
+        Check(Math.Abs(Math.Abs(stubPart.Ports[0].Outward.Dot(Unit(new Vec(1,1,0))))-1)<1e-6,"stub ports face along its real run direction");
+        Reject(()=>FittingGeometry.Build(stub,"Straight",.15,.30),"stub whose section does not match the nominal size is rejected");
+        var cube=PortGraphFixtures.Straight(new Vec(),new Vec(.15,0,0),.15,.15);
+        Reject(()=>FittingGeometry.Build(cube,"Straight",.15,.15),"a cube-like stub with two matching frames stays ambiguous");
+        // An 11mm plate fragment shares the nominal footprint but is shorter than its own section.
+        var sliver=PortGraphFixtures.Straight(new Vec(),new Vec(.011,0,0),.15,.15);
+        Reject(()=>FittingGeometry.Build(sliver,"Straight",.15,.15),"a section-matching sliver shorter than its own width is rejected");
+        var realStub=PortGraphFixtures.Straight(new Vec(),new Vec(.228,0,0),.19,.15);
+        Near(FittingGeometry.Build(realStub,"Straight",.15,.15).InternalEdges.Single().Length,.228,"a tray stub longer than its section is still accepted");
         foreach(var d in new[]{new Vec(2,0,0),new Vec(0,2,0),new Vec(0,0,2),Unit(new Vec(1,2,3))*2})
         {
             var p=FittingGeometry.Build(PortGraphFixtures.Straight(new Vec(),d),"sLoPe");Check(p.Ports.Length==2&&p.InternalEdges.Length==1,"arbitrary 3D straight has two ports and one internal edge");Near(p.InternalEdges[0].Length,2,"3D straight uses real centerline length");
@@ -239,6 +255,6 @@ static partial class PortGraphChecks
     {
         if(args.Length==4&&(args[0]=="--replay-capture"||args[0]=="--replay-capture-virtual")){try{ReplayCaptured(args[1],args[2],args[3],args[0]=="--replay-capture-virtual");}catch(Exception e){Console.Error.WriteLine(e.Message);Environment.ExitCode=1;}return;}
         if(args.Length>0&&args[0]=="--fixture-only"){PortGraphFixtures.WriteArtifacts(args.Length>1?args[1]:"artifacts");Console.WriteLine("Synthetic IFC, mesh manifest and expected lengths written.");return;}
-        string artifacts=args.Length>0?args[0]:null;PureGraph();ConnectivityRegressions();GeometryCases();FoldedAndSleeveCases();GapBridgeCases();VirtualConnectorCases(artifacts);ConnectivityDiagnosticCases();PathCostCases();FullMeshRoute(artifacts);if(artifacts!=null){PortGraphFixtures.WriteArtifacts(artifacts);PortGraphFixtures.WriteGapBridgeArtifacts(artifacts);PortGraphFixtures.WriteVirtualConnectorArtifacts(artifacts);PortGraphFixtures.WriteConnectivityArtifacts(artifacts);}Console.WriteLine("RESULT: "+count+" port graph checks passed.");
+        string artifacts=args.Length>0?args[0]:null;PureGraph();ConnectivityRegressions();GeometryCases();FoldedAndSleeveCases();GapBridgeCases();VirtualConnectorCases(artifacts);ConnectivityDiagnosticCases();PathCostCases();SpliceBridgeCases();RealStubCase0();RealStubCase1();FullMeshRoute(artifacts);if(artifacts!=null){PortGraphFixtures.WriteArtifacts(artifacts);PortGraphFixtures.WriteGapBridgeArtifacts(artifacts);PortGraphFixtures.WriteVirtualConnectorArtifacts(artifacts);PortGraphFixtures.WriteConnectivityArtifacts(artifacts);}Console.WriteLine("RESULT: "+count+" port graph checks passed.");
     }
 }

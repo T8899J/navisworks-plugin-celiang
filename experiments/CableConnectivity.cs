@@ -78,11 +78,12 @@ namespace TrayRouteExperiment
             compare=x.TargetEdge.CompareTo(y.TargetEdge);return compare!=0?compare:x.TargetStation.CompareTo(y.TargetStation);
         }
 
-        List<VirtualProposal> NearestVirtualCandidates(CableLocation source,IList<CableLocation> free,int topN,double radius,out int candidateCount)
+        List<VirtualProposal> NearestVirtualCandidates(CableLocation source,IList<CableLocation> free,int topN,double radius,out int candidateCount,bool filtered=false)
         {
             var result=new List<VirtualProposal>();int total=0;
             Action<VirtualProposal> retain=proposal=>{
                 var d=proposal.Diagnostic;if(!Vec.IsFinite(d.Distance3D)||d.Distance3D>radius+1e-10)return;
+                if(filtered&&!PassesVirtualFilters(proposal))return;
                 total++;int index=result.FindIndex(p=>CompareCandidate(proposal,p)<0);if(index<0)index=result.Count;
                 if(index<topN){result.Insert(index,proposal);if(result.Count>topN)result.RemoveAt(result.Count-1);}
             };
@@ -116,7 +117,7 @@ namespace TrayRouteExperiment
         {
             var free=PhysicalBoundaryPorts.Select(p=>WorldPort(p.Piece,p.Port)).Where(p=>!occupied.Contains(Socket(p))).ToArray();
             var nearest=new Dictionary<string,List<VirtualProposal>>(StringComparer.Ordinal);var counts=new Dictionary<string,int>(StringComparer.Ordinal);
-            foreach(var source in free){int total;nearest.Add(Socket(source),NearestVirtualCandidates(source,free,VirtualConnectorTopN,VirtualConnectorMaxDistance,out total));counts.Add(Socket(source),total);}
+            foreach(var source in free){int total;nearest.Add(Socket(source),NearestVirtualCandidates(source,free,VirtualConnectorTopN,VirtualConnectorMaxDistance,out total,true));counts.Add(Socket(source),total);}
             var added=new HashSet<string>(StringComparer.Ordinal);
             foreach(var source in free)foreach(var proposal in nearest[Socket(source)])
             {

@@ -17,12 +17,14 @@ namespace TrayRouteExperiment
         public double OverlapLength;
         public double GapDistance,LateralOffset,VerticalOffset;
         public VirtualConnectorCandidate VirtualConnector;
+        public string SpliceConnectorId,SpliceConnectorName;
         // A sleeve join is stationed inside both terminal edges. Retain the physical
         // socket identities separately for ambiguity detection and side-entry exclusion.
         public int SocketPortA=-1,SocketPortB=-1;
         public Vec ConnectionPoint;
         public bool IsSideEntry { get { return Kind=="branch-to-middle"; } }
         public bool IsGapBridge { get { return Kind=="gap-bridge"; } }
+        public bool IsSpliceBridge { get { return SpliceConnectorId!=null; } }
         public bool IsVirtualConnector { get { return VirtualConnector!=null; } }
         public double ConnectionLength { get { return IsVirtualConnector?VirtualConnector.Distance3D:IsGapBridge?GapDistance:(A.Point-(IsSideEntry?ConnectionPoint:B.Point)).Norm; } }
         public double AccessLength { get { return IsSideEntry?(ConnectionPoint-B.Point).Norm:0; } }
@@ -49,6 +51,8 @@ namespace TrayRouteExperiment
         public double GapBridgeLength;
         public int VirtualConnectorCount;
         public double VirtualConnectorTotalLength;
+        public int SpliceBridgeCount;
+        public double SpliceBridgeLength;
         public List<CableStep> Steps,InternalEdges;
         public bool RequiresReview;
         public int[] Pieces;
@@ -68,28 +72,40 @@ namespace TrayRouteExperiment
         public readonly double VirtualConnectorMaxDistance;
         public readonly bool VirtualConnectorExperimentalTopN;
         public readonly int VirtualConnectorTopN;
+        public readonly double VirtualConnectorMaxAngle;
+        public readonly bool VirtualConnectorRejectParallelOffset;
+        public int VirtualConnectorDirectionRejected,VirtualConnectorParallelRejected;
+        public readonly int MaxPieces;
+        public readonly bool SpliceBridgeUniqueFacingPair;
         public readonly List<CableBoundaryPort> PhysicalBoundaryPorts;
         public readonly int[] PhysicalPieceComponents;
         public int PhysicalComponentCount { get { return PhysicalPieceComponents.Distinct().Count(); } }
         public readonly List<VirtualConnectorCandidate> VirtualConnectorCandidates=new List<VirtualConnectorCandidate>();
+        public readonly List<CableJointHint> JointHints;
         static readonly double CosAngle=Math.Cos(Math.PI/60);
         const double PositionEpsilon=1e-7;
-        public CableNetwork(List<CablePiece> pieces,double tolerance=.002,CableNetworkOptions options=null)
+        public CableNetwork(List<CablePiece> pieces,double tolerance=.002,CableNetworkOptions options=null,IList<CableJointHint> jointHints=null)
         {
             if(!Vec.IsFinite(tolerance)||tolerance<=0||tolerance>.02)throw new ArgumentOutOfRangeException("tolerance");
             options=options??new CableNetworkOptions();
             foreach(var setting in new[]{options.GapBridgeMaxDistance,options.GapBridgeWidthAxisTolerance,options.GapBridgeHeightAxisTolerance,options.GapBridgeSizeTolerance,options.VirtualConnectorMaxDistance})
                 if(!Vec.IsFinite(setting)||setting<0)throw new ArgumentOutOfRangeException("options","Connection distances and tolerances must be finite, non-negative world metres.");
             if(pieces==null)throw new ArgumentNullException("pieces");
-            if(pieces.Count>2000)throw new InvalidOperationException("本次网络超过 2000 个可识别构件，请缩小范围");
-            Pieces=pieces;Tolerance=tolerance;
+            MaxPieces=options.MaxPieces;SpliceBridgeUniqueFacingPair=options.SpliceBridgeUniqueFacingPair;
+            if(MaxPieces<1)throw new ArgumentOutOfRangeException("options","MaxPieces must be positive.");
+            if(pieces.Count>MaxPieces)throw new InvalidOperationException("本次网络超过 "+MaxPieces+" 个可识别构件，请缩小范围");
+            Pieces=pieces;Tolerance=tolerance;JointHints=jointHints==null?new List<CableJointHint>():jointHints.ToList();
             GapBridgeMaxDistance=options.GapBridgeMaxDistance;GapBridgeWidthAxisTolerance=options.GapBridgeWidthAxisTolerance;
             GapBridgeHeightAxisTolerance=options.GapBridgeHeightAxisTolerance;GapBridgeSizeTolerance=options.GapBridgeSizeTolerance;
             VirtualConnectorMaxDistance=options.VirtualConnectorMaxDistance;
             VirtualConnectorExperimentalTopN=options.VirtualConnectorExperimentalTopN;VirtualConnectorTopN=options.VirtualConnectorTopN;
             if(VirtualConnectorTopN<1)throw new ArgumentOutOfRangeException("options","VirtualConnectorTopN must be positive.");
+            VirtualConnectorMaxAngle=options.VirtualConnectorMaxAngle;VirtualConnectorRejectParallelOffset=options.VirtualConnectorRejectParallelOffset;
+            if(!Vec.IsFinite(VirtualConnectorMaxAngle)||VirtualConnectorMaxAngle<0||VirtualConnectorMaxAngle>180)throw new ArgumentOutOfRangeException("options","VirtualConnectorMaxAngle must be 0-180 degrees.");
             for(int i=0;i<Pieces.Count;i++)ValidatePart(i);
             var occupied=BuildJoins();
+            // Splice connectors are real modelled joints, so their bridges count as physical connections.
+            BuildSpliceBridges(occupied);
             // Components come from the actual Port/Junction graph before any gap or virtual edge.
             PhysicalPieceComponents=ReadPhysicalComponents(BuildGraph(null,null));
             PhysicalBoundaryPorts=ReadPhysicalBoundaryPorts(occupied);
@@ -358,7 +374,7 @@ namespace TrayRouteExperiment
             {
                 var j=Joins[i];int a=stationNode(j.A),b=stationNode(j.B),connectionB=b;
                 if(j.IsSideEntry){connectionB=addNode(j.B.Piece,"$side-port:"+i,CableNodeKind.Port,j.ConnectionPoint);addEdge(new CableGraphEdge{From=connectionB,To=b,Piece=j.B.Piece,InternalEdge=-1,EdgeId="$side-access:"+i,Kind=CableEdgeKind.InternalEdge,Length=j.AccessLength,FromStation=0,ToStation=j.AccessLength,Centerline=new[]{j.ConnectionPoint,j.B.Point},RequiresReview=true,ReviewReason=j.ReviewReason});}
-                addEdge(new CableGraphEdge{From=a,To=connectionB,Piece=-1,InternalEdge=-1,EdgeId=(j.IsVirtualConnector?"$virtual-connector:":j.IsGapBridge?"$gap-bridge:":"$connection:")+i,Kind=j.IsVirtualConnector?CableEdgeKind.VirtualConnectorEdge:j.IsGapBridge?CableEdgeKind.GapBridgeEdge:CableEdgeKind.ConnectionEdge,Length=j.ConnectionLength,Centerline=new[]{j.IsGapBridge||j.IsVirtualConnector?g.Nodes[a].Point:j.A.Point,g.Nodes[connectionB].Point},RequiresReview=j.RequiresReview,ReviewReason=j.ReviewReason,Join=j});
+                addEdge(new CableGraphEdge{From=a,To=connectionB,Piece=-1,InternalEdge=-1,EdgeId=(j.IsVirtualConnector?"$virtual-connector:":j.IsGapBridge?"$gap-bridge:":j.IsSpliceBridge?"$splice-bridge:":"$connection:")+i,Kind=j.IsVirtualConnector?CableEdgeKind.VirtualConnectorEdge:j.IsGapBridge?CableEdgeKind.GapBridgeEdge:CableEdgeKind.ConnectionEdge,Length=j.ConnectionLength,Centerline=new[]{j.IsGapBridge||j.IsVirtualConnector?g.Nodes[a].Point:j.A.Point,g.Nodes[connectionB].Point},RequiresReview=j.RequiresReview,ReviewReason=j.ReviewReason,Join=j});
             }
             if(start!=null)g.Start=stationNode(start);if(finish!=null)g.Finish=stationNode(finish);
             for(int p=0;p<Pieces.Count;p++)for(int e=0;e<Pieces[p].Shape.InternalEdges.Length;e++)
@@ -389,7 +405,7 @@ namespace TrayRouteExperiment
                 var e=prior[current];bool forward=e.To==current;steps.Add(new CableStep{Piece=e.Piece,Edge=e.InternalEdge,EdgeId=e.EdgeId,Kind=e.Kind,From=forward?e.FromStation:e.ToStation,To=forward?e.ToStation:e.FromStation,A=graph.Nodes[forward?e.From:e.To].Point,B=graph.Nodes[forward?e.To:e.From].Point,Centerline=forward?e.Centerline.ToArray():e.Centerline.Reverse().ToArray(),Length=e.Length,Join=e.Join,RequiresReview=e.RequiresReview,ReviewReason=e.ReviewReason});current=forward?e.From:e.To;
             }
             steps.Reverse();var ids=steps.Where(s=>s.Piece>=0).Select(s=>s.Piece).Concat(new[]{start.Piece,finish.Piece}).Distinct().ToArray();var internals=steps.Where(s=>s.Kind==CableEdgeKind.InternalEdge).ToList();
-            return new CableRoute{Length=costs[graph.Finish].TotalLength.Metres,VerticalTravel=costs[graph.Finish].VerticalTravel.Metres,GapBridgeCount=costs[graph.Finish].GapCount,GapBridgeLength=steps.Where(s=>s.Kind==CableEdgeKind.GapBridgeEdge).Sum(s=>s.Length),VirtualConnectorCount=costs[graph.Finish].VirtualCount,VirtualConnectorTotalLength=costs[graph.Finish].VirtualLength.Metres,Steps=steps,Pieces=ids,RequiresReview=steps.Any(s=>s.RequiresReview),InternalEdges=internals,ReviewConnections=steps.Where(s=>s.Join!=null&&s.RequiresReview).Select(s=>s.Join).Distinct().ToList(),FittingContributions=internals.Where(s=>IsFitting(Pieces[s.Piece].Shape)).GroupBy(s=>s.Piece).Select(group=>new CableFittingContribution{Piece=group.Key,Name=Pieces[group.Key].Shape.Name,Kind=Pieces[group.Key].Shape.Kind,Length=group.Sum(s=>s.Length),EdgeIds=group.Select(s=>s.EdgeId).Distinct().ToArray()}).ToList()};
+            return new CableRoute{Length=costs[graph.Finish].TotalLength.Metres,VerticalTravel=costs[graph.Finish].VerticalTravel.Metres,GapBridgeCount=costs[graph.Finish].GapCount,GapBridgeLength=steps.Where(s=>s.Kind==CableEdgeKind.GapBridgeEdge).Sum(s=>s.Length),VirtualConnectorCount=costs[graph.Finish].VirtualCount,VirtualConnectorTotalLength=costs[graph.Finish].VirtualLength.Metres,SpliceBridgeCount=steps.Count(s=>s.Join!=null&&s.Join.IsSpliceBridge),SpliceBridgeLength=steps.Where(s=>s.Join!=null&&s.Join.IsSpliceBridge).Sum(s=>s.Length),Steps=steps,Pieces=ids,RequiresReview=steps.Any(s=>s.RequiresReview),InternalEdges=internals,ReviewConnections=steps.Where(s=>s.Join!=null&&s.RequiresReview).Select(s=>s.Join).Distinct().ToList(),FittingContributions=internals.Where(s=>IsFitting(Pieces[s.Piece].Shape)).GroupBy(s=>s.Piece).Select(group=>new CableFittingContribution{Piece=group.Key,Name=Pieces[group.Key].Shape.Name,Kind=Pieces[group.Key].Shape.Kind,Length=group.Sum(s=>s.Length),EdgeIds=group.Select(s=>s.EdgeId).Distinct().ToArray()}).ToList()};
         }
         static bool IsFitting(Part p){string kind=(p.Kind??"").ToLowerInvariant();return kind!="straight"&&kind!="slope"&&kind!="slopestraight";}
     }

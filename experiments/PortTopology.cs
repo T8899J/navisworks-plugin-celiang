@@ -18,6 +18,15 @@ namespace TrayRouteExperiment
         public double VirtualConnectorMaxDistance { get; set; }
         public bool VirtualConnectorExperimentalTopN { get; set; }
         public int VirtualConnectorTopN { get; set; } = 5;
+        // Degrees between a port's outward direction and the connector (both ends for Port-to-Port). Zero disables.
+        public double VirtualConnectorMaxAngle { get; set; }
+        // Rejects connectors between parallel trays whose axes are offset sideways by more than half a cross-section.
+        public bool VirtualConnectorRejectParallelOffset { get; set; }
+        // Recognized components kept in the port graph; the rest are reported as rejected. Diagnostics use the same value.
+        public int MaxPieces { get; set; } = 2000;
+        // When true, a splice box holding more than two ports is still bridged if exactly one pair faces
+        // each other. False restores the original rule that requires exactly two ports.
+        public bool SpliceBridgeUniqueFacingPair { get; set; } = true;
     }
 
     public sealed class VirtualConnectorCandidate

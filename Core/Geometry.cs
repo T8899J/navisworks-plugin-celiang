@@ -138,6 +138,53 @@ namespace JiePinPai.TrayMeasurement.Core
         }
 
         private static Measurement Reject(Measurement r, string reason) { r.Reason = reason; return r; }
+
+        // Measures along a caller-supplied orthonormal frame instead of PCA axes. Short stubs have
+        // near-equal eigenvalues, so PCA cannot pick the longitudinal axis; the caller chooses the frame
+        // from face normals and nominal size. The continuous-section check still applies.
+        public static Measurement MeasureFrame(IList<Triangle> mesh, Vec axis, Vec cross1, Vec cross2)
+        {
+            if (mesh == null || mesh.Count == 0) throw new InvalidOperationException("没有可测量的三角面。");
+            var axes = new[] { axis, cross1, cross2 };
+            Vec origin = mesh[0].A;
+            var min = new[] { double.PositiveInfinity, double.PositiveInfinity, double.PositiveInfinity };
+            var max = new[] { double.NegativeInfinity, double.NegativeInfinity, double.NegativeInfinity };
+            var projected = new List<Triangle>(mesh.Count);
+            foreach (Triangle t in mesh)
+            {
+                Vec a = Project(t.A - origin, axes), b = Project(t.B - origin, axes), c = Project(t.C - origin, axes);
+                projected.Add(new Triangle(a, b, c));
+                foreach (Vec p in new[] { a, b, c })
+                    for (int i = 0; i < 3; i++) { min[i] = Math.Min(min[i], p[i]); max[i] = Math.Max(max[i], p[i]); }
+            }
+            Func<double, Vec> at = x => origin + axis * x + cross1 * ((min[1] + max[1]) / 2) + cross2 * ((min[2] + max[2]) / 2);
+            var result = new Measurement {
+                SpanMetres = max[0] - min[0], WidthMetres = max[1] - min[1], HeightMetres = max[2] - min[2],
+                Axis = axis, CrossAxis1 = cross1, CrossAxis2 = cross2,
+                Start = origin + axis * min[0], End = origin + axis * max[0], PortStart = at(min[0]), PortEnd = at(max[0])
+            };
+            double crossSpan = Math.Max(result.WidthMetres, result.HeightMetres);
+            if (crossSpan < 1e-6 || result.SpanMetres < 1e-6) return Reject(result, "UNKNOWN_GEOMETRY：几何退化。");
+            double[] reference = null, maxVariation = { 0 };
+            double coverTolerance = Math.Max(0.002, crossSpan * 0.025);
+            for (int station = 1; station <= 19; station++)
+            {
+                double[] section = Section(projected, min[0] + result.SpanMetres * station / 20);
+                if (section == null) return Reject(result, "UNKNOWN_GEOMETRY：截面不连续，可能选中了多个分离构件。");
+                // Slicing across the run (e.g. through only the bottom plate) gives a partial section;
+                // along the real run every slice spans the full width and height.
+                if (result.WidthMetres - (section[1] - section[0]) > coverTolerance || result.HeightMetres - (section[3] - section[2]) > coverTolerance)
+                    return Reject(result, "UNKNOWN_GEOMETRY：截面未覆盖整个宽高，该方向不是纵向。");
+                if (reference == null) reference = section;
+                for (int i = 0; i < 4; i++) maxVariation[0] = Math.Max(maxVariation[0], Math.Abs(section[i] - reference[i]));
+            }
+            result.SectionVariation = maxVariation[0];
+            if (maxVariation[0] > Math.Max(0.002, crossSpan * 0.025))
+                return Reject(result, "UNKNOWN_GEOMETRY：截面位置或尺寸变化，疑似弯头、三通、变径或组合件。");
+            result.IsStraightCandidate = true;
+            result.Reason = "直线候选（按标称截面确定纵向） · 实验值，请与人工测量对照";
+            return result;
+        }
         private static Vec Project(Vec p, Vec[] axes) { return new Vec(p.Dot(axes[0]), p.Dot(axes[1]), p.Dot(axes[2])); }
 
         private static double[] Section(List<Triangle> mesh, double x)
