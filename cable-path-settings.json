@@ -3,5 +3,7 @@
   "GapBridgeWidthAxisTolerance": 0.002,
   "GapBridgeHeightAxisTolerance": 0.002,
   "GapBridgeSizeTolerance": 0.003,
-  "VirtualConnectorMaxDistance": 0.5
+  "VirtualConnectorMaxDistance": 0.5,
+  "VirtualConnectorExperimentalTopN": true,
+  "VirtualConnectorTopN": 5
 }

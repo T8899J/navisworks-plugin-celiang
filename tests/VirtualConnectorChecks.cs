@@ -158,10 +158,11 @@ static partial class PortGraphChecks
         }
     }
 
-    static void VirtualCostCases()
+    static void VirtualCostCases(bool experimental=false)
     {
+        CableNetwork CostNetwork(params CablePiece[] pieces) => experimental?new CableNetwork(pieces.ToList(),options:new CableNetworkOptions{VirtualConnectorMaxDistance=.5,VirtualConnectorExperimentalTopN=true}):VirtualNet(pieces);
         // Existing multiport fixtures only provide alternative routes. No new fitting rules.
-        Func<double,bool,CableNetwork> alternatives=(centreY,equalLength)=>VirtualNet(
+        Func<double,bool,CableNetwork> alternatives=(centreY,equalLength)=>CostNetwork(
             ShiftVirtualHub("cost-left",0,centreY,false,0),ShiftVirtualHub("cost-right",3,centreY,true,.2),
             Line("lower-A",new Vec(),new Vec(1,0,0)),Line("lower-B",new Vec(1.4,0,.2),new Vec(3,0,.2)),
             Line("upper-A",new Vec(0,4,0),new Vec(1,4,0)),Line("upper-B",new Vec(equalLength?1.4:1.3,4,.2),new Vec(3,4,.2)));
@@ -173,7 +174,7 @@ static partial class PortGraphChecks
         Check(route.Pieces.Contains(2)&&!route.Pieces.Contains(4),"equal connector count and connector length choose shorter total physical length");
         Near(route.Length,7.6+Math.Sqrt(.2),"third cost term reports actual internal plus connector travel");
 
-        n=VirtualNet(ShiftVirtualHub("count-left",0,3.5,false,0),ShiftVirtualHub("count-right",3,3.5,true,.2),
+        n=CostNetwork(ShiftVirtualHub("count-left",0,3.5,false,0),ShiftVirtualHub("count-right",3,3.5,true,.2),
             Line("one-A",new Vec(),new Vec(1,0,0)),Line("one-B",new Vec(1.4,0,.2),new Vec(3,0,.2)),
             Line("two-A",new Vec(0,4,0),new Vec(.6,4,0)),Line("two-middle",new Vec(.7,4,.1),new Vec(2,4,.1)),Line("two-B",new Vec(2.1,4,.2),new Vec(3,4,.2)));
         Check(VirtualEdges(n).Length==3,"connector count fixture offers one connector and two-connector alternatives");

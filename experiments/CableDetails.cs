@@ -10,7 +10,7 @@ namespace TrayRouteExperiment
 {
     internal sealed partial class CableForm
     {
-        readonly Button detailsButton = new Button { Text = "查看长度明细与未识别配件", Dock = DockStyle.Top, Height = 38, FlatStyle = FlatStyle.Flat };
+        readonly Button detailsButton = new Button { Text = "查看明细与断点诊断", Dock = DockStyle.Top, Height = 38, FlatStyle = FlatStyle.Flat };
         readonly TabControl detailsTabs = new TabControl { Dock = DockStyle.Fill, Visible = false };
         readonly DataGridView edgeGrid = Grid(), fittingGrid = Grid(), reviewGrid = Grid(), rejectedGrid = Grid();
         bool detailsExpanded;
@@ -47,14 +47,14 @@ namespace TrayRouteExperiment
                     ClientSize = expand ? new Size(1000, 650) : new Size(460, 338);
                     if (expand) detailsTabs.Visible = true;
                     detailsExpanded = expand;
-                    detailsButton.Text = expand ? "收起明细" : "查看长度明细与未识别配件";
+                    detailsButton.Text = expand ? "收起明细" : "查看明细与断点诊断";
                 }
                 finally { detailsTabs.ResumeLayout(false); ResumeLayout(true); }
                 var area = Screen.FromControl(this).WorkingArea;
                 Location = new Point(Math.Max(area.Left, Math.Min(Left, area.Right - Width)), Math.Max(area.Top, Math.Min(Top, area.Bottom - Height)));
             };
             AddTab("内部路径", edgeGrid); AddTab("配件已计入长度", fittingGrid); AddTab("待复核", reviewGrid); AddTab("跳过 / 未识别", rejectedGrid);
-            Controls.Clear(); Controls.Add(detailsTabs); Controls.Add(detailsButton); Controls.Add(summary);
+            AddConnectivityTab();Controls.Clear(); Controls.Add(detailsTabs); Controls.Add(detailsButton); Controls.Add(summary);
         }
 
         void AddTab(string title, DataGridView grid)
@@ -133,10 +133,12 @@ namespace TrayRouteExperiment
                 recognized = network.Recognized, rejected = network.Rejected, incomplete = network.Incomplete,
                 scan = new { network.ScanNodeCount, network.ScanCandidateCount, network.ScanElapsedSeconds },
                 settings = new { network.Graph.PhysicalTolerance, network.Graph.GapBridgeMaxDistance,
-                    network.Graph.GapBridgeWidthAxisTolerance, network.Graph.GapBridgeHeightAxisTolerance, network.Graph.GapBridgeSizeTolerance, network.Graph.VirtualConnectorMaxDistance },
+                    network.Graph.GapBridgeWidthAxisTolerance, network.Graph.GapBridgeHeightAxisTolerance, network.Graph.GapBridgeSizeTolerance, network.Graph.VirtualConnectorMaxDistance, network.Graph.VirtualConnectorExperimentalTopN, network.Graph.VirtualConnectorTopN },
                 graphNodes = network.Graph.GraphNodes, graphEdges = network.Graph.GraphEdges,
                 physicalComponents = network.Graph.PhysicalPieceComponents, physicalComponentCount = network.Graph.PhysicalComponentCount,
-                virtualConnectorCandidates = network.Graph.VirtualConnectorCandidates,
+                virtualConnectorCandidates = network.Graph.VirtualConnectorCandidates, physicalBoundaryPorts = network.Graph.PhysicalBoundaryPorts,
+                connectivityDiagnostics, highlightedBreakpoint,
+                rejectionSummary = network.Rejected.GroupBy(r=>r.GeometryFailureReason).Select(g=>new{reason=g.Key,count=g.Count()}),
                 ambiguities = network.Graph.Ambiguities, manualPassabilityVerified = false, manualLengthVerified = false
             }));
         }

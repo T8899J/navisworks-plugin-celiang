@@ -1,48 +1,42 @@
-# VirtualConnector 三维实验
+# VirtualConnector 三维实验（V12）
 
-继续使用现有 Port / Junction / Edge Graph，不改变几何提取或配件重建规则。启动入口仍为 `启动电缆路径实验.bat`，本阶段 DLL 和插件注册名为 V11。
+继续使用现有 Port / Junction / Edge Graph。当前 DLL、拾取工具、渲染插件和宿主探针注册名均为 V12；唯一用户入口仍为 `启动电缆路径实验.bat`。本阶段只增加真实模型连通诊断和 Top-N 实验策略，配件几何及严格 GapBridge 保持原有规则。
 
-## 配置与候选
+## 配置
 
-`cable-path-settings.json` 的 `VirtualConnectorMaxDistance` 为独立候选半径，当前为 **0.5 米**。构建时复制到 DLL 同目录。改源配置后重新构建并关闭、重开实验窗口；设为 0 关闭新连接。直接创建 `CableNetwork` 的旧调用默认关闭 VirtualConnector。
+根目录 `cable-path-settings.json` 构建后复制到 DLL 同目录；改源配置后重新构建，关闭并重开实验窗口以重新建图。
 
-PhysicalTolerance 仍为 2mm。严格 GapBridge 仍使用原来的 50mm、2mm WidthAxis / HeightAxis、尺寸兼容及相向条件；接受的 GapBridge 不再重复生成 VirtualConnector。
+| 配置 | 当前值 | 含义 |
+| --- | ---: | --- |
+| VirtualConnectorMaxDistance | 0.5 | 入图候选的独立三维距离上限，单位米；设 0 关闭 |
+| VirtualConnectorExperimentalTopN | true | V12 多候选实验模式 |
+| VirtualConnectorTopN | 5 | 每个自由 Port 保留的最近候选数量 |
 
-先完成所有真实连接，再对包含 InternalEdge / ConnectionEdge 的 **Port/Junction 图**求 connected components。GapBridge 和 VirtualConnector 不参与这次分量计算。物理占用、物理连接歧义以及已接受 GapBridge 的端口不进入新候选搜索。
+PhysicalTolerance 仍为 2mm。严格 GapBridge 仍使用 50mm 距离、2mm WidthAxis / HeightAxis 偏差及原有尺寸/相向条件。真实占用、真实连接歧义、已接受 GapBridge 的端口不参与虚拟连接入图搜索。
 
-- **PortToPort3D**：不同真实分量中的两个自由 Port，连接其世界坐标，长度为 `sqrt(dx² + dy² + dz²)`。
-- **PortToSegment3D**：自由 Port 投影到另一个 Straight / Slope InternalEdge 的每个 XYZ 线段，选择该边的最近投影点。投影 station 必须严格位于边内部，距离端 station 大于 0.1 微米；端部投影由 Port-to-Port 处理。在 Q 建 VirtualJunction，并沿现有 station 机制逻辑拆分中心线。
+先建立 InternalEdge / Physical Connection 图并求真实 connected components，再生成跨真实分量的虚拟候选。GapBridge 和 VirtualConnector 不参与这次分量计算；同一真实分量不生成虚拟连接捷径。
 
-角度、横向偏移、Z 高差、截面尺寸差异不作为这两类虚拟连接的硬条件。目标中部仅支持实际直线的 Straight / Slope 中心线。一个边的共享 polyline 顶点不会重复产生候选。
+- **PortToPort3D**：两个自由 Port 世界 XYZ 之间的直线，长度 `sqrt(dx² + dy² + dz²)`。
+- **PortToSegment3D**：自由 Port 对另一个 Straight / Slope InternalEdge 的每个 XYZ 线段作最近投影，选该边最近点 Q。station 严格在边内部时创建 VirtualJunction 并逻辑拆边；端部投影由 Port-to-Port 处理。
 
-两个候选类型一起计数；每个源 Port 必须恰好只有一个跨分量候选，Port-to-Port 的目标 Port 也必须唯一。多候选记录 `Ambiguous`，不选最近者。不同自由 Port 可分别接入同一主路边的不同 station。
+两种候选共同按实际 3D 距离排序。角度、Z 高差、截面尺寸差异只记录诊断，不新增硬条件。全部 Top-N 可以进入实验图；反向 Port-to-Port 记录对应的源排名，但同一个无向连接只建一条图边。多个源 Port 可分别接入主路不同 station。
 
-## 计长与诊断
+## 待复核路径和失败诊断
 
-新增 `CableEdgeKind.VirtualConnectorEdge`，所有此类边始终 `RequiresReview=true`。世界三维距离直接计入总长度和高亮线段；报告中的 `VirtualConnectorCount`、`VirtualConnectorTotalLength` 是本次路径实际经过的数量、长度。
+全部 `VirtualConnectorEdge` 都是 `RequiresReview=true`、`Confirmed=false`、`Status=Candidate`，不确认物理可通行性。长度、坐标和高亮线段全部使用真实世界 XYZ。
 
-开启 VirtualConnector 时，Dijkstra 严格按 `(VirtualConnectorCount, VirtualConnectorTotalLength, TotalPhysicalLength)` 排序。第三项包含所有实际经过的边长，不添加虚构惩罚。关闭新功能时保留原 GapBridge 数量优先的旧调用行为。`Find(start, finish, false)` 仍排除所有待复核边。
+Dijkstra 继续按 `(VirtualConnectorCount, VirtualConnectorTotalLength, TotalRouteLength)` 字典序选择路径，不增加人工长度惩罚。总长包含所有实际经过的 InternalEdge、物理小间隙、GapBridge、VirtualConnector。零虚拟连接的真实路线优先。`Find(start, finish, false)` 继续排除全部待复核边。
 
-同一真实分量内不创建新虚拟边，记录 `SkippedSamePhysicalComponent`。如果两个真实连通端点之间还有经外部分量形成的虚拟绕路，零虚拟连接的真实路径优先。
+找到待复核路线后显示 **“候选路径，需要复核”**。未找到时抛出带 `CableConnectivityDiagnostics` 的 `CablePathNotFoundException`，记录起终真实分量、所有分量的边界自由端口，并为起点分量每个自由 Port 搜索全模型其他分量的最近 Top 5。失败诊断不受入图候选半径限制，也不改变图；半径外候选标记 `DiagnosticOnly`。
 
-实验读取网络后即在 `artifacts/cable-graph-*.json` 写诊断，找不到路径时也保留候选数据。`virtualConnectorCandidates` 包含搜索半径内的跨分量候选和同分量跳过记录：
+完整字段、红线定位、可见性验证和真实模型重放方法见 [CONNECTIVITY_DIAGNOSTICS.md](CONNECTIVITY_DIAGNOSTICS.md)。
 
-- 源 / 目标构件索引、ID、名称、RunName、Port，或目标 InternalEdge / station；
-- 世界坐标、3D distance、带符号 delta X / Y / Z，所有距离单位为米；
-- 源朝向与连接方向夹角，目标 Port 的对应夹角、相向角，或目标中心线切向夹角，单位为度；零距离时无定义的夹角为 null；
-- 两端测得的宽高及目标减源的截面差异；
-- Physical component ID、源合法候选数、目标 Port 合法候选数（中部目标没有 Port，此项为 0）、Status、Reason。
+## 兼容行为
 
-`Accepted` 只表示唯一的虚拟候选，实际开口、支撑及电缆可穿行性须复核。名称与规格只用于诊断。未识别构件仍使用现有 rejected 详细日志。
+直接调用 `new CableNetwork(...)` 默认关闭 VirtualConnector。现有调用显式开启半径、但未开启 `VirtualConnectorExperimentalTopN` 时，保留 V11 的双向唯一候选要求和 `Ambiguous` 拒绝行为；全部原有回归检查仍保留。V11 中的 `Accepted` 仅表示算法接受唯一虚拟候选，同样需要复核，不是 confirmed。
 
-## 验证
+## 验证边界
 
-```powershell
-dotnet run --project tests\CoreChecks.csproj
-dotnet run --project tests\PortGraphChecks.csproj -- artifacts\virtual-connector-stage
-.\build_cable_path_experiment.ps1
-.\scripts\verify-cable-graph-host.ps1 -Manifest .\artifacts\virtual-connector-stage\virtual-port-fixture.json -Model .\artifacts\virtual-connector-stage\virtual-port-fixture.ifc -Report .\artifacts\virtual-connector-stage\virtual-port-host.json
-.\scripts\verify-cable-graph-host.ps1 -Manifest .\artifacts\virtual-connector-stage\virtual-segment-fixture.json -Model .\artifacts\virtual-connector-stage\virtual-segment-fixture.ifc -Report .\artifacts\virtual-connector-stage\virtual-segment-host.json
-```
+当前测试包含不同名称、RunName、规格和任意 XYZ 倾斜的桥架，以及水平/带 Z 高差的 Port-to-Segment、多候选和失败断点。独立 Navisworks 合成宿主逐件核对中心线贡献、虚拟三维距离、严格 GapBridge 和真实小间隙，保留 10 微米几何阈值。
 
-两个新 IFC 均包含不同名称、RunName、规格的空间倾斜桥架。独立理论长度分别为 `2 + sqrt(0.1625)` 米和 `2 + 0.35 + 4.3 = 6.65` 米。宿主检查保留原来的 10 微米几何阈值，并分别核对 InternalEdge 和虚拟连接的贡献。这些是合成宿主测试，不能替代真实工程模型的长度和可穿缆验收。
+合成验证不替代真实工程模型的开口、可穿缆性和敷设长度验收。未识别的配件仍明确列出，不使用 BoundingBox 猜测长度；本阶段未增加 Tee、Reducer、Elbow、主路优先或其他工程规则。

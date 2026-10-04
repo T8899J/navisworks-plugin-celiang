@@ -16,12 +16,16 @@ namespace TrayRouteExperiment
         public double GapBridgeSizeTolerance { get; set; } = .003;
         // Independent search radius, not a physical tolerance. Zero preserves legacy callers.
         public double VirtualConnectorMaxDistance { get; set; }
+        public bool VirtualConnectorExperimentalTopN { get; set; }
+        public int VirtualConnectorTopN { get; set; } = 5;
     }
 
     public sealed class VirtualConnectorCandidate
     {
         public VirtualConnectorKind Kind;
         public string KindName { get { return Kind.ToString(); } }
+        public bool RequiresReview { get { return true; } }
+        public bool Confirmed { get { return false; } }
         public int SourcePiece, SourcePort, TargetPiece, TargetPort, TargetEdge;
         public string SourcePieceId, SourceName, SourceRunName, SourcePortId;
         public string TargetPieceId, TargetName, TargetRunName, TargetPortId, TargetEdgeId;
@@ -30,6 +34,8 @@ namespace TrayRouteExperiment
         public double SourceWidth, SourceHeight, TargetWidth, TargetHeight, WidthDifference, HeightDifference;
         public double? SourceDirectionAngleDegrees, TargetDirectionAngleDegrees, PortFacingAngleDegrees, TargetTangentAngleDegrees;
         public int SourcePhysicalComponent, TargetPhysicalComponent, CandidateCount, TargetPortCandidateCount;
+        public int CandidateRank, TargetPortCandidateRank;
+        public bool WithinVirtualConnectorMaxDistance;
         public string Status, Reason;
     }
 

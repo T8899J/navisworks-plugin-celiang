@@ -1,4 +1,4 @@
-param([string]$NavisworksPath, [string]$Manifest, [string]$Model, [string]$Report)
+param([string]$NavisworksPath, [string]$Manifest, [string]$Model, [string]$Report, [switch]$VerifyVisibility)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'host-paths.ps1')
@@ -8,12 +8,13 @@ if (-not $Manifest) { $Manifest = Join-Path $root 'artifacts\port-graph-fixture.
 if (-not $Report) { $Report = Join-Path $root ('artifacts\port-graph-host-' + [DateTime]::Now.ToString('yyyyMMdd-HHmmss') + '.json') }
 $fixture = Get-Content -LiteralPath $Manifest -Raw -Encoding UTF8 | ConvertFrom-Json
 $culture = [Globalization.CultureInfo]::InvariantCulture
-function Format-Point($p) { return ((([double]$p.X).ToString('R', $culture), ([double]$p.Y).ToString('R', $culture), ([double]$p.Z).ToString('R', $culture)) -join ',') }
-$assembly = Join-Path $root 'experiments\bin\CablePathV11\JiePinPai.CablePathExperimentV11.dll'
+function Format-Point($p) { return 'xyz:' + ((([double]$p.X).ToString('R', $culture), ([double]$p.Y).ToString('R', $culture), ([double]$p.Z).ToString('R', $culture)) -join ',') }
+$assembly = Join-Path $root 'experiments\bin\CablePathV12\JiePinPai.CablePathExperimentV12.dll'
 foreach ($path in @($assembly, $Model)) { if (-not (Test-Path -LiteralPath $path)) { throw "Missing input: $path" } }
 $values = @($assembly, $Model, $Report, $fixture.startName, $fixture.finishName, (Format-Point $fixture.start), (Format-Point $fixture.finish))
 if ($values | Where-Object { $_.Contains('"') }) { throw 'Embedded quotes are not supported in test paths or names.' }
-$arguments = '-HideGui -AddPluginAssembly "' + $assembly + '" -OpenFile "' + $Model + '" -ExecuteAddInPlugin CableGraphProbeV11.JPPM "' + $Report + '" "' + $fixture.startName + '" "' + $fixture.finishName + '" "' + (Format-Point $fixture.start) + '" "' + (Format-Point $fixture.finish) + '" -Exit'
+$probeFlags = if ($VerifyVisibility) { ' "check-visibility"' } else { '' }
+$arguments = '-HideGui -AddPluginAssembly "' + $assembly + '" -OpenFile "' + $Model + '" -ExecuteAddInPlugin CableGraphProbeV12.JPPM "' + $Report + '" "' + $fixture.startName + '" "' + $fixture.finishName + '" "' + (Format-Point $fixture.start) + '" "' + (Format-Point $fixture.finish) + '"' + $probeFlags + ' -Exit'
 # A separate test process loads only the generated fixture. Existing user documents are untouched.
 $process = Start-Process -FilePath (Join-Path $NavisworksPath 'Roamer.exe') -ArgumentList $arguments -WorkingDirectory $root -WindowStyle Hidden -PassThru
 Write-Host "TEST HOST PID: $($process.Id)"
@@ -21,10 +22,31 @@ Write-Host "REPORT: $Report"
 if (-not $process.WaitForExit(180000)) { throw "Test host has not exited (PID $($process.Id)). No process was terminated." }
 if (-not (Test-Path -LiteralPath $Report)) { throw "Host produced no report; exit code $($process.ExitCode)." }
 $result = Get-Content -LiteralPath $Report -Raw -Encoding UTF8 | ConvertFrom-Json
+if ($fixture.expectedFailure) {
+    $diagnostics=$result.connectivityDiagnostics
+    if ($result.success -or $result.result -or -not $diagnostics) { throw 'Expected typed failed-route connectivity diagnostics.' }
+    if ($result.incomplete -or $result.recognized.Count -ne $fixture.items.Count) { throw 'Failure fixture was not completely recognized.' }
+    if ($diagnostics.StartPhysicalComponent -eq $diagnostics.FinishPhysicalComponent -or $diagnostics.BoundaryPorts.Count -ne 4) { throw 'Physical components or free boundary ports are incorrect.' }
+    if ([Math]::Abs($diagnostics.Candidates[0].Distance3D-$fixture.expectedNearestDistance) -gt 0.00001) { throw 'Nearest physical breakpoint differs from the independent fixture.' }
+    if ($diagnostics.Candidates[0].KindName -ne 'PortToSegment3D') { throw 'Failure should expose a branch-to-centreline breakpoint.' }
+    foreach ($candidate in $diagnostics.Candidates) {
+        if ($candidate.Status -ne 'DiagnosticOnly' -or -not $candidate.RequiresReview -or $candidate.Confirmed -or $candidate.CandidateRank -lt 1 -or $candidate.CandidateRank -gt 5) { throw 'Failed-route candidate is incorrectly confirmed or ranked.' }
+        $xyz=[Math]::Sqrt($candidate.DeltaX*$candidate.DeltaX+$candidate.DeltaY*$candidate.DeltaY+$candidate.DeltaZ*$candidate.DeltaZ)
+        if ([Math]::Abs($xyz-$candidate.Distance3D) -gt 1e-10) { throw 'Failed-route candidate uses an incorrect XYZ distance.' }
+    }
+    Write-Host ('PASS: failed route exposes {0} physical components, {1} boundary ports, {2} candidates; nearest breakpoint {3:F9} m.' -f $result.physicalComponentCount,$diagnostics.BoundaryPorts.Count,$diagnostics.Candidates.Count,$diagnostics.Candidates[0].Distance3D)
+    return
+}
 if (-not $result.success) { throw "Host reconstruction failed: $($result.error). Inspect rejected entries in $Report" }
+if ($VerifyVisibility) {
+    $visibility=$result.visibilityChecks
+    if (-not $visibility.passed -or -not $visibility.exact -or $visibility.maintenanceVolumes -lt 1 -or $visibility.maintenanceGeometry -lt 1 -or -not $visibility.maintenanceExcluded) { throw 'Native visibility or Maintenance Volume verification is missing.' }
+    if ($visibility.states.Count -ne 4 -or ($visibility.states | Where-Object { -not $_.recognizedIdentical -or -not $_.topologyIdentical -or -not $_.routeIdentical -or -not $_.routeLengthIdentical -or $_.hiddenGeometry -lt 1 })) { throw 'A native hidden state changed recognized items, graph topology or route length.' }
+    Write-Host ('VISIBILITY: exact same recognized items, topology and route across {0} hidden states; Maintenance Volume excluded.' -f $visibility.states.Count)
+}
 if ($result.incomplete) { throw 'Fixture graph extraction was incomplete.' }
 $errorMetres = [Math]::Abs($result.result.Length - $fixture.expectedRouteLength)
-if ($result.result.Pieces.Count -ne $fixture.expectedContributions.Count) { throw 'Host path component count differs from the fixture.' }
+if ($result.result.Pieces.Count -ne @($fixture.expectedContributions | Where-Object { $_ -gt 0 }).Count) { throw 'Host path component count differs from the fixture.' }
 $internalLength = ($result.result.InternalEdges | Measure-Object -Property Length -Sum).Sum
 $connections = @($result.result.Steps | Where-Object { $_.Kind -eq 1 })
 $connectionLength = ($connections | Measure-Object -Property Length -Sum).Sum
@@ -43,12 +65,16 @@ if ($virtualSteps.Count -ne $expectedVirtualCount -or $result.result.VirtualConn
 if ([Math]::Abs($virtualLength - $expectedVirtualLength) -gt 0.00001 -or [Math]::Abs($result.result.VirtualConnectorTotalLength - $virtualLength) -gt 1e-10) { throw 'Host virtual length differs from the independent fixture or its route contribution.' }
 foreach ($step in $virtualSteps) {
     $candidate = $step.Join.VirtualConnector
-    if (-not $step.RequiresReview -or -not $step.Join.IsVirtualConnector -or $candidate.Status -ne 'Accepted' -or $step.ReviewReason -notmatch 'deltaZ=') { throw 'Virtual connector review diagnostic is missing.' }
-    if ($candidate.SourcePhysicalComponent -eq $candidate.TargetPhysicalComponent -or $candidate.CandidateCount -ne 1) { throw 'Virtual connector violates component or uniqueness rules.' }
+    if (-not $step.RequiresReview -or -not $step.Join.IsVirtualConnector -or -not $candidate.RequiresReview -or $candidate.Confirmed -or $step.ReviewReason -notmatch 'deltaZ=') { throw 'Virtual connector review diagnostic is missing.' }
+    if ($candidate.SourcePhysicalComponent -eq $candidate.TargetPhysicalComponent) { throw 'Virtual connector violates physical component rules.' }
+    if ($result.settings.VirtualConnectorExperimentalTopN) {
+        if ($candidate.Status -ne 'Candidate' -or $candidate.CandidateRank -lt 1 -or $candidate.CandidateRank -gt $result.settings.VirtualConnectorTopN -or $candidate.CandidateCount -lt $candidate.CandidateRank) { throw 'Top-N candidate was confirmed, unranked or outside the configured candidate count.' }
+        if ($fixture.minimumSourceCandidates -and $candidate.CandidateCount -lt $fixture.minimumSourceCandidates) { throw 'Multiple candidate fixture did not exercise an ambiguous source.' }
+    } elseif ($candidate.Status -ne 'Accepted' -or $candidate.CandidateCount -ne 1) { throw 'Legacy virtual connector violates uniqueness rules.' }
     $xyzLength = [Math]::Sqrt($candidate.DeltaX*$candidate.DeltaX + $candidate.DeltaY*$candidate.DeltaY + $candidate.DeltaZ*$candidate.DeltaZ)
     if ([Math]::Abs($xyzLength - $step.Length) -gt 1e-10) { throw 'Virtual connector does not store its actual world XYZ distance.' }
     if ($candidate.KindName -ne $fixture.expectedVirtualKind) { throw 'Host virtual connector kind differs from the fixture.' }
-    if ($candidate.KindName -eq 'PortToPort3D' -and $candidate.TargetPortCandidateCount -ne 1) { throw 'Target port is not mutually unique.' }
+    if (-not $result.settings.VirtualConnectorExperimentalTopN -and $candidate.KindName -eq 'PortToPort3D' -and $candidate.TargetPortCandidateCount -ne 1) { throw 'Target port is not mutually unique.' }
     if ($candidate.KindName -eq 'PortToSegment3D') {
         $dx=$candidate.TargetPoint.X-$fixture.expectedTargetPoint.X; $dy=$candidate.TargetPoint.Y-$fixture.expectedTargetPoint.Y; $dz=$candidate.TargetPoint.Z-$fixture.expectedTargetPoint.Z
         if ([Math]::Sqrt($dx*$dx+$dy*$dy+$dz*$dz) -gt 0.00001 -or [Math]::Abs($candidate.TargetStation-$fixture.expectedTargetStation) -gt 0.00001) { throw 'Host projected junction or station differs from the independent fixture.' }

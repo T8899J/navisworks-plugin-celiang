@@ -64,6 +64,9 @@ namespace TrayRouteExperiment
         public double PhysicalTolerance { get { return Tolerance; } }
         public readonly double GapBridgeMaxDistance,GapBridgeWidthAxisTolerance,GapBridgeHeightAxisTolerance,GapBridgeSizeTolerance;
         public readonly double VirtualConnectorMaxDistance;
+        public readonly bool VirtualConnectorExperimentalTopN;
+        public readonly int VirtualConnectorTopN;
+        public readonly List<CableBoundaryPort> PhysicalBoundaryPorts;
         public readonly int[] PhysicalPieceComponents;
         public int PhysicalComponentCount { get { return PhysicalPieceComponents.Distinct().Count(); } }
         public readonly List<VirtualConnectorCandidate> VirtualConnectorCandidates=new List<VirtualConnectorCandidate>();
@@ -81,10 +84,13 @@ namespace TrayRouteExperiment
             GapBridgeMaxDistance=options.GapBridgeMaxDistance;GapBridgeWidthAxisTolerance=options.GapBridgeWidthAxisTolerance;
             GapBridgeHeightAxisTolerance=options.GapBridgeHeightAxisTolerance;GapBridgeSizeTolerance=options.GapBridgeSizeTolerance;
             VirtualConnectorMaxDistance=options.VirtualConnectorMaxDistance;
+            VirtualConnectorExperimentalTopN=options.VirtualConnectorExperimentalTopN;VirtualConnectorTopN=options.VirtualConnectorTopN;
+            if(VirtualConnectorTopN<1)throw new ArgumentOutOfRangeException("options","VirtualConnectorTopN must be positive.");
             for(int i=0;i<Pieces.Count;i++)ValidatePart(i);
             var occupied=BuildJoins();
             // Components come from the actual Port/Junction graph before any gap or virtual edge.
             PhysicalPieceComponents=ReadPhysicalComponents(BuildGraph(null,null));
+            PhysicalBoundaryPorts=ReadPhysicalBoundaryPorts(occupied);
             BuildGapBridges(occupied);
             foreach(var join in Joins.Where(j=>j.IsGapBridge)){occupied.Add(Socket(join,true));occupied.Add(Socket(join,false));}
             BuildVirtualConnectors(occupied);
@@ -376,7 +382,7 @@ namespace TrayRouteExperiment
                 int a=-1;for(int i=0;i<count;i++)if(!visited[i]&&(a<0||costs[i].Compare(costs[a],virtualMode)<0))a=i;if(a<0||double.IsInfinity(costs[a].TotalLength)||a==graph.Finish)break;visited[a]=true;
                 foreach(var edge in adjacency[a]){int b=edge.From==a?edge.To:edge.From;if(visited[b])continue;var cost=costs[a].Add(edge);if(cost.Compare(costs[b],virtualMode)<0){costs[b]=cost;prior[b]=edge;}}
             }
-            if(double.IsInfinity(costs[graph.Finish].TotalLength))throw new InvalidOperationException("未找到连续的 Port/Junction 路径；可能存在未识别配件、接入间隙或待复核连接");
+            if(double.IsInfinity(costs[graph.Finish].TotalLength))throw new CablePathNotFoundException(DiagnoseConnectivity(start,finish));
             var steps=new List<CableStep>();int current=graph.Finish;
             while(current!=graph.Start)
             {

@@ -194,6 +194,43 @@ public static class PortGraphFixtures
             expectedVirtualKind="PortToSegment3D",expectedTargetStation=3.7,expectedTargetPoint=q,items=segmentParts},json));
         File.WriteAllText(Path.Combine(directory,"virtual-segment-fixture.ifc"),Ifc(segmentParts),Encoding.ASCII);
     }
+    public static void WriteConnectivityArtifacts(string directory)
+    {
+        Directory.CreateDirectory(directory);var json=new JsonSerializerOptions{IncludeFields=true,WriteIndented=true};
+        var chain=Chain();var maintenance=new MeshFixture{Name="Maintenance Volume",RunName="Excluded-Run",Description="Straight",Size="400 x 100 mm",
+            Mesh=Straight(new Vec(30,30,0),new Vec(32,30,0)),ExpectedWholeLength=2};
+        File.WriteAllText(Path.Combine(directory,"visibility-fixture.ifc"),Ifc(chain.Concat(new[]{maintenance}).ToList()),Encoding.ASCII);
+        File.WriteAllText(Path.Combine(directory,"visibility-fixture.json"),JsonSerializer.Serialize(new{synthetic=true,units="metres",startName=chain[0].Name,finishName=chain.Last().Name,
+            start=Start,finish=Finish,expectedRouteLength=ExpectedRouteLength,expectedContributions=new[]{1.5,1,1.5,ArcLength(1,Math.PI/2),2,1,1.5},items=chain},json));
+        var ambiguous=new List<MeshFixture>{
+            new MeshFixture{Name="Fixture-TopN-Branch",RunName="TopN-Branch",Description="Straight",Size="200 x 100 mm",Mesh=Straight(new Vec(-2,0,0),new Vec(),.2),ExpectedWholeLength=2},
+            new MeshFixture{Name="Fixture-TopN-Target",RunName="TopN-Target",Description="Straight",Size="600 x 100 mm",Mesh=Straight(new Vec(.3,0,.2),new Vec(2.3,0,.2),.6),ExpectedWholeLength=2},
+            new MeshFixture{Name="Fixture-TopN-Alternative",RunName="TopN-Alternative",Description="Straight",Size="400 x 100 mm",Mesh=Straight(new Vec(.4,0,-.2),new Vec(2.4,0,-.2)),ExpectedWholeLength=2}
+        };
+        File.WriteAllText(Path.Combine(directory,"multiple-candidate-fixture.ifc"),Ifc(ambiguous),Encoding.ASCII);
+        File.WriteAllText(Path.Combine(directory,"multiple-candidate-fixture.json"),JsonSerializer.Serialize(new{synthetic=true,units="metres",startName=ambiguous[0].Name,finishName=ambiguous[1].Name,
+            start=new Vec(-2,0,0),finish=new Vec(2.3,0,.2),expectedRouteLength=4+Math.Sqrt(.13),expectedContributions=new[]{2.0,2.0,0.0},
+            expectedVirtualCount=1,expectedVirtualLength=Math.Sqrt(.13),expectedVirtualKind="PortToPort3D",minimumSourceCandidates=2,items=ambiguous},json));
+        foreach(bool raised in new[]{false,true})
+        {
+            double z=raised?.25:0;var parts=new List<MeshFixture>{
+                new MeshFixture{Name="Fixture-Horizontal-Branch",RunName="Short-Branch",Description="Straight",Size="200 x 100 mm",Mesh=Straight(new Vec(3,-2,z),new Vec(3,-.3,z),.2),ExpectedWholeLength=1.7},
+                new MeshFixture{Name="Fixture-Horizontal-Main",RunName="Other-Run-Main",Description="Straight",Size="400 x 100 mm",Mesh=Straight(new Vec(),new Vec(10,0,0)),ExpectedWholeLength=10}
+            };
+            double length=Math.Sqrt(.09+z*z);string name=raised?"raised-segment-fixture":"horizontal-segment-fixture";
+            File.WriteAllText(Path.Combine(directory,name+".ifc"),Ifc(parts),Encoding.ASCII);
+            File.WriteAllText(Path.Combine(directory,name+".json"),JsonSerializer.Serialize(new{synthetic=true,units="metres",startName=parts[0].Name,finishName=parts[1].Name,
+                start=new Vec(3,-2,z),finish=new Vec(8,0,0),expectedRouteLength=6.7+length,expectedContributions=new[]{1.7,5.0},
+                expectedVirtualCount=1,expectedVirtualLength=length,expectedVirtualKind="PortToSegment3D",expectedTargetStation=3.0,expectedTargetPoint=new Vec(3,0,0),items=parts},json));
+        }
+        var failed=new List<MeshFixture>{
+            new MeshFixture{Name="Fixture-Disconnected-Branch",RunName="Failure-Branch",Description="Straight",Size="200 x 100 mm",Mesh=Straight(new Vec(3,-2,.25),new Vec(3,-.8,.25),.2),ExpectedWholeLength=1.2},
+            new MeshFixture{Name="Fixture-Disconnected-Main",RunName="Failure-Other-Main",Description="Straight",Size="400 x 100 mm",Mesh=Straight(new Vec(),new Vec(10,0,0)),ExpectedWholeLength=10}
+        };
+        File.WriteAllText(Path.Combine(directory,"disconnected-fixture.ifc"),Ifc(failed),Encoding.ASCII);
+        File.WriteAllText(Path.Combine(directory,"disconnected-fixture.json"),JsonSerializer.Serialize(new{synthetic=true,units="metres",startName=failed[0].Name,finishName=failed[1].Name,
+            start=new Vec(3,-2,.25),finish=new Vec(8,0,0),expectedFailure=true,expectedNearestDistance=Math.Sqrt(.64+.0625),items=failed},json));
+    }
     static string Ifc(List<MeshFixture> fixtures)
     {
         var e=new List<string>();Func<string,string> add=body=>{e.Add("#"+(e.Count+1)+"="+body+";");return "#"+e.Count;};

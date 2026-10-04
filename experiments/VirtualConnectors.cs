@@ -96,6 +96,7 @@ namespace TrayRouteExperiment
         void BuildVirtualConnectors(HashSet<string> occupied)
         {
             if(VirtualConnectorMaxDistance<=0)return;
+            if(VirtualConnectorExperimentalTopN){BuildVirtualTopCandidates(occupied);return;}
             var free=new List<CableLocation>();
             for(int piece=0;piece<Pieces.Count;piece++)for(int port=0;port<Pieces[piece].Shape.Ports.Length;port++)
             {

@@ -135,7 +135,7 @@ namespace TrayRouteExperiment
                 {
                     checkBudget(); var frame = pending.Pop(); network.ScanNodeCount++;
                     var metadata = ReadMetadata(frame.Item, checkBudget);
-                    bool excluded = frame.Excluded || frame.Item.IsHidden || metadata.Name == "Maintenance Volume";
+                    bool excluded = frame.Excluded || metadata.Name == "Maintenance Volume";
                     if (IsCandidate(metadata, frame.TrayAncestor))
                     {
                         if (result.Count >= 6000) throw new InvalidOperationException("桥架候选超过 6000 个，请先在较小的模型中实验");
@@ -167,7 +167,7 @@ namespace TrayRouteExperiment
                 if (watch.Elapsed.TotalSeconds > 120) throw new InvalidOperationException("模型提取已达 120 秒上限，本构件未提取");
                 var item = pending.Pop();
                 // Excluding an ancestor excludes its entire subtree; no repeated AncestorsAndSelf walk.
-                if (item.IsHidden || item.DisplayName == "Maintenance Volume") continue;
+                if (item.DisplayName == "Maintenance Volume") continue;
                 if (item.HasGeometry) result.Add(item);
                 var children = item.Children.ToArray();
                 for (int i = children.Length - 1; i >= 0; i--) pending.Push(children[i]);
@@ -227,7 +227,7 @@ namespace TrayRouteExperiment
                     if (string.Equals(info.TypeClassification, "unknown", StringComparison.OrdinalIgnoreCase))
                         throw new InvalidOperationException("无法识别配件类型；未用名称、规格或包围盒猜测长度");
                     var nodes = VisibleGeometry(candidate, watch);
-                    if (nodes.Length == 0) throw new InvalidOperationException("没有可见的实体三角网格（可能已隐藏、无几何或仅有检修空间）");
+                    if (nodes.Length == 0) throw new InvalidOperationException("没有实体三角网格（无几何或仅有检修空间；显示隐藏状态不影响建图）");
                     var nodeKeys = nodes.Select(Key).ToArray();
                     if (nodeKeys.Any(usedGeometry.Contains)) throw new InvalidOperationException("与已识别子构件共享同一几何实例，跳过父子重复范围");
                     var mesh = new List<Triangle>();

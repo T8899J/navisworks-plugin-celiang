@@ -239,6 +239,6 @@ static partial class PortGraphChecks
     {
         if(args.Length==4&&(args[0]=="--replay-capture"||args[0]=="--replay-capture-virtual")){try{ReplayCaptured(args[1],args[2],args[3],args[0]=="--replay-capture-virtual");}catch(Exception e){Console.Error.WriteLine(e.Message);Environment.ExitCode=1;}return;}
         if(args.Length>0&&args[0]=="--fixture-only"){PortGraphFixtures.WriteArtifacts(args.Length>1?args[1]:"artifacts");Console.WriteLine("Synthetic IFC, mesh manifest and expected lengths written.");return;}
-        string artifacts=args.Length>0?args[0]:null;PureGraph();ConnectivityRegressions();GeometryCases();FoldedAndSleeveCases();GapBridgeCases();VirtualConnectorCases(artifacts);FullMeshRoute(artifacts);if(artifacts!=null){PortGraphFixtures.WriteArtifacts(artifacts);PortGraphFixtures.WriteGapBridgeArtifacts(artifacts);PortGraphFixtures.WriteVirtualConnectorArtifacts(artifacts);}Console.WriteLine("RESULT: "+count+" port graph checks passed.");
+        string artifacts=args.Length>0?args[0]:null;PureGraph();ConnectivityRegressions();GeometryCases();FoldedAndSleeveCases();GapBridgeCases();VirtualConnectorCases(artifacts);ConnectivityDiagnosticCases();FullMeshRoute(artifacts);if(artifacts!=null){PortGraphFixtures.WriteArtifacts(artifacts);PortGraphFixtures.WriteGapBridgeArtifacts(artifacts);PortGraphFixtures.WriteVirtualConnectorArtifacts(artifacts);PortGraphFixtures.WriteConnectivityArtifacts(artifacts);}Console.WriteLine("RESULT: "+count+" port graph checks passed.");
     }
 }

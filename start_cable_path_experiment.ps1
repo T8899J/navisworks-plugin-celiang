@@ -1,6 +1,6 @@
 ﻿param([string]$NavisworksPath, [string]$DemoBranch, [string]$DemoMain)
 $ErrorActionPreference = 'Stop'
-$assembly = Join-Path $PSScriptRoot 'experiments\bin\CablePathV11\JiePinPai.CablePathExperimentV11.dll'
+$assembly = Join-Path $PSScriptRoot 'experiments\bin\CablePathV12\JiePinPai.CablePathExperimentV12.dll'
 if (-not (Test-Path -LiteralPath $assembly)) { throw '请先运行 build_cable_path_experiment.ps1。' }
 $artifacts = Join-Path $PSScriptRoot 'artifacts'
 New-Item -ItemType Directory -Path $artifacts -Force | Out-Null
@@ -11,4 +11,4 @@ if ($DemoBranch -or $DemoMain) {
     New-Item -ItemType Directory -Path $artifacts -Force | Out-Null
     $arguments = @((Join-Path $artifacts ('cable-' + [DateTime]::Now.ToString('yyyyMMdd-HHmmss') + '.json')), $DemoBranch, $DemoMain)
 }
-& (Join-Path $PSScriptRoot 'scripts\attach-existing.ps1') -Assembly $assembly -PluginId 'CablePathExperimentV11.JPPM' -PluginArguments $arguments -NavisworksPath $NavisworksPath
+& (Join-Path $PSScriptRoot 'scripts\attach-existing.ps1') -Assembly $assembly -PluginId 'CablePathExperimentV12.JPPM' -PluginArguments $arguments -NavisworksPath $NavisworksPath

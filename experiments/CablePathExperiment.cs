@@ -19,7 +19,7 @@ using View=Autodesk.Navisworks.Api.View;
 
 namespace TrayRouteExperiment
 {
-    [Plugin("CablePathExperimentV11","JPPM",DisplayName="电缆路径实验",ToolTip="从分支到主路，按点击位置计算路径")]
+    [Plugin("CablePathExperimentV12","JPPM",DisplayName="电缆路径实验",ToolTip="从分支到主路，按点击位置计算路径")]
     [AddInPlugin(AddInLocation.AddIn)]
     public sealed class CableEntry:AddInPlugin
     {
@@ -32,7 +32,7 @@ namespace TrayRouteExperiment
             else if(args.Length>=3)form.Demo(args[0],args[1],args[2]);return 0;
         }
     }
-    [Plugin("CablePointPickerV11","JPPM")]
+    [Plugin("CablePointPickerV12","JPPM")]
     public sealed class CablePicker:ToolPlugin
     {
         internal static CableForm Target;
@@ -47,12 +47,13 @@ namespace TrayRouteExperiment
         public override bool KeyDown(View view,KeyModifiers modifiers,ushort key,double timeOffset)
         {if(key!=27||Target==null)return false;var f=Target;f.BeginInvoke(new Action(f.CancelPick));return true;}
     }
-    [Plugin("CablePathOverlayV11","JPPM")]
+    [Plugin("CablePathOverlayV12","JPPM")]
     public sealed class CableOverlay:RenderPlugin
     {
         internal static Document Document;
         internal static ModelItem Root;
         internal static readonly List<Tuple<Vec,Vec,bool>> Lines=new List<Tuple<Vec,Vec,bool>>();
+        internal static readonly List<Tuple<Vec,Vec>> Breakpoints=new List<Tuple<Vec,Vec>>();
         internal static Vec? Start,End;
         internal static double Scale;
         public override void OverlayRender(View view,Autodesk.Navisworks.Api.Graphics graphics)
@@ -64,6 +65,8 @@ namespace TrayRouteExperiment
                 graphics.DepthTest(false);graphics.Lighting(false);graphics.LineWidth(5);
                 foreach(var line in Lines)
                 {graphics.Color(line.Item3?new Autodesk.Navisworks.Api.Color(1,.55,0):new Autodesk.Navisworks.Api.Color(0,.9,.2),1);graphics.Line(Point(line.Item1),Point(line.Item2));}
+                graphics.Color(new Autodesk.Navisworks.Api.Color(1,0,0),1);graphics.LineWidth(8);
+                foreach(var breakpoint in Breakpoints){graphics.Line(Point(breakpoint.Item1),Point(breakpoint.Item2));Mark(graphics,breakpoint.Item1,new Autodesk.Navisworks.Api.Color(1,0,0));Mark(graphics,breakpoint.Item2,new Autodesk.Navisworks.Api.Color(1,0,0));}
                 if(Start.HasValue)Mark(graphics,Start.Value,new Autodesk.Navisworks.Api.Color(0,1,0));
                 if(End.HasValue)Mark(graphics,End.Value,new Autodesk.Navisworks.Api.Color(1,.1,.1));
             }
@@ -88,7 +91,7 @@ namespace TrayRouteExperiment
         string reportPath;int pickedPoints;
         public CableForm()
         {
-            Text="电缆路径（端口图实验）";ClientSize=new Size(460,338);Font=new Font("Microsoft YaHei UI",10);AutoScaleMode=AutoScaleMode.Dpi;AutoScaleDimensions=new SizeF(96,96);
+            Text="电缆路径 V12（端口图实验）";ClientSize=new Size(460,338);Font=new Font("Microsoft YaHei UI",10);AutoScaleMode=AutoScaleMode.Dpi;AutoScaleDimensions=new SizeF(96,96);
             BackColor=UiColor.FromArgb(246,247,249);FormBorderStyle=FormBorderStyle.FixedSingle;MaximizeBox=false;StartPosition=FormStartPosition.Manual;
             var screen=Screen.PrimaryScreen.WorkingArea;Location=new System.Drawing.Point(screen.Left+80,screen.Top+200);
             caption.ForeColor=hint.ForeColor=UiColor.FromArgb(100,116,139);number.Font=resultFont;number.ForeColor=UiColor.FromArgb(15,23,42);
@@ -101,7 +104,18 @@ namespace TrayRouteExperiment
             AddDetailsUi(layout);
             startButton.Click+=(s,e)=>Safe(()=>BeginPick(true));finishButton.Click+=(s,e)=>Safe(()=>BeginPick(false));restoreButton.Click+=(s,e)=>Safe(Restore);
         }
-        void Safe(Action action){try{UseWaitCursor=true;action();}catch(Exception e){number.Text="—";caption.Text="暂时无法测量";hint.Text=e.Message;CableOverlay.Lines.Clear();UpdateDetails(null);try{SaveReport(null,e.Message);}catch(Exception reportError){Debug.WriteLine(reportError);}Debug.WriteLine(e);}finally{UseWaitCursor=false;}}
+        void Safe(Action action)
+        {
+            try{UseWaitCursor=true;action();}
+            catch(Exception e)
+            {
+                number.Text="—";caption.Text="暂时无法测量";hint.Text=e.Message;CableOverlay.Lines.Clear();CableOverlay.Breakpoints.Clear();
+                try{var failure=e as CablePathNotFoundException;if(failure!=null)ShowConnectivityFailure(failure);else{ClearConnectivityDiagnostics();UpdateDetails(null);}}
+                catch(Exception diagnosticError){Debug.WriteLine(diagnosticError);}
+                try{SaveReport(null,e.Message);}catch(Exception reportError){Debug.WriteLine(reportError);}Debug.WriteLine(e);
+            }
+            finally{UseWaitCursor=false;}
+        }
         void Remember()
         {
             var d=NavApp.ActiveDocument;if(d==null||d.IsClear)throw new InvalidOperationException("请先打开模型");
@@ -117,7 +131,7 @@ namespace TrayRouteExperiment
         {
             Remember();if(!first&&start==null)throw new InvalidOperationException("请先选择起点");
             CancelPick();pickingStart=first;priorTool=doc.Tool.Value;priorCustom=doc.Tool.CustomToolPluginId;
-            CablePicker.Target=this;var record=(ToolPluginRecord)NavApp.Plugins.FindPlugin("CablePointPickerV11.JPPM");doc.Tool.SetCustomToolPlugin(record.LoadPlugin());
+            CablePicker.Target=this;var record=(ToolPluginRecord)NavApp.Plugins.FindPlugin("CablePointPickerV12.JPPM");doc.Tool.SetCustomToolPlugin(record.LoadPlugin());
             caption.Text=first?"请在桥架上点击起点":"请在桥架上点击终点";hint.Text="Esc 取消选择";number.Text="—";
         }
         public void CancelPick()
@@ -136,14 +150,14 @@ namespace TrayRouteExperiment
                 if(item.AncestorsAndSelf.Any(x=>x.DisplayName=="Maintenance Volume"))throw new InvalidOperationException("请点击桥架实体，避开检修空间");
                 EnsureNetwork(item);int index=network.Index(item);if(index<0)throw new InvalidOperationException("这个构件未通过几何识别；展开明细查看具体原因");
                 double scale=UnitConversion.ScaleFactor(doc.Units,Units.Meters);var location=network.Graph.Project(index,documentPoint*scale);pickedPoints++;
-                if(first){start=location;finish=null;CableOverlay.Lines.Clear();SetOverlay();UpdateDetails(null);caption.Text="起点已记录";hint.Text="点击“选终点并测量”，再点终点";number.Text="—";}
+                if(first){start=location;finish=null;ClearConnectivityDiagnostics();CableOverlay.Lines.Clear();SetOverlay();UpdateDetails(null);caption.Text="起点已记录";hint.Text="点击“选终点并测量”，再点终点";number.Text="—";}
                 else{finish=location;Display(network.Graph.Find(start,finish),false);}
             });
         }
         void SetOverlay()
         {
             CableOverlay.Document=doc;CableOverlay.Root=originalRoot;CableOverlay.Scale=UnitConversion.ScaleFactor(doc.Units,Units.Meters);CableOverlay.Start=start==null?(Vec?)null:start.Point;CableOverlay.End=finish==null?(Vec?)null:finish.Point;
-            ((RenderPluginRecord)NavApp.Plugins.FindPlugin("CablePathOverlayV11.JPPM")).LoadPlugin();doc.ActiveView.RequestDelayedRedraw(ViewRedrawRequests.All);
+            ((RenderPluginRecord)NavApp.Plugins.FindPlugin("CablePathOverlayV12.JPPM")).LoadPlugin();doc.ActiveView.RequestDelayedRedraw(ViewRedrawRequests.All);
         }
         public void Demo(string report,string branchName,string mainName)
         {
@@ -165,14 +179,14 @@ namespace TrayRouteExperiment
                 EnsureNetwork(hits[0]);var graph=network.Graph;
                 var a=graph.Pieces.Select((p,i)=>new{p,i}).Single(x=>x.p.Shape.Name==firstName).i;
                 var b=graph.Pieces.Select((p,i)=>new{p,i}).Single(x=>x.p.Shape.Name==lastName).i;
-                Func<string,Vec> point=s=>{var q=s.Split(',').Select(x=>double.Parse(x,CultureInfo.InvariantCulture)).ToArray();if(q.Length!=3)throw new ArgumentException("需要三维坐标");return new Vec(q[0],q[1],q[2]);};
+                Func<string,Vec> point=s=>{if(s.StartsWith("xyz:",StringComparison.Ordinal))s=s.Substring(4);var q=s.Split(',').Select(x=>double.Parse(x,CultureInfo.InvariantCulture)).ToArray();if(q.Length!=3)throw new ArgumentException("需要三维坐标");return new Vec(q[0],q[1],q[2]);};
                 start=graph.Project(a,point(firstPoint));finish=graph.Project(b,point(lastPoint));
                 Display(graph.Find(start,finish),true);
             });
         }
         void Display(CableRoute result,bool overview)
         {
-            Check();Reveal();var selectedItems=result.Pieces.SelectMany(i=>network.Geometry[i]).ToArray();var keep=new HashSet<ModelItem>(selectedItems.SelectMany(x=>x.AncestorsAndSelf));
+            Check();ClearConnectivityDiagnostics();Reveal();var selectedItems=result.Pieces.SelectMany(i=>network.Geometry[i]).ToArray();var keep=new HashSet<ModelItem>(selectedItems.SelectMany(x=>x.AncestorsAndSelf));
             Action<ModelItem> visit=null;visit=node=>{if(node.IsHidden)return;if(!keep.Contains(node)){hidden.Add(node);return;}foreach(var child in node.Children)visit(child);};foreach(var root in doc.Models.RootItems)visit(root);doc.Models.SetHidden(hidden,true);
             using(var selection=new ModelItemCollection()){selection.AddRange(selectedItems);doc.CurrentSelection.CopyFrom(selection);
                 if(overview){using(var vp=doc.CurrentViewpoint.CreateCopy()){vp.AlignDirection(new Vector3D(.15,.35,-1));vp.AlignUp(new Vector3D(0,1,0));vp.ZoomBox(selection.BoundingBox());doc.CurrentViewpoint.CopyFrom(vp);}}}
@@ -182,7 +196,7 @@ namespace TrayRouteExperiment
                 if(line==null||line.Length<2)continue;
                 for(int i=1;i<line.Length;i++)CableOverlay.Lines.Add(Tuple.Create(line[i-1],line[i],step.RequiresReview));
             }
-            SetOverlay();caption.Text=(result.RequiresReview||network.Incomplete?"候选电缆路径":"总电缆路径长度")+" · "+result.Pieces.Length+" 个构件";number.Text=result.Length.ToString("0.000")+" m";
+            SetOverlay();caption.Text=(result.RequiresReview||network.Incomplete?"候选路径，需要复核":"总电缆路径长度")+" · "+result.Pieces.Length+" 个构件";number.Text=result.Length.ToString("0.000")+" m";
             double fittingLength=result.FittingContributions.Sum(f=>f.Length);
             string fittingSummary=result.FittingContributions.Count==0?"本段未经过配件":
                 "已含配件 "+fittingLength.ToString("0.000")+" m · "+result.FittingContributions.Count+" 件";
@@ -191,7 +205,7 @@ namespace TrayRouteExperiment
             UpdateDetails(result);SaveReport(result);
         }
         void Reveal(){if(hidden.Count==0)return;Check();doc.Models.SetHidden(hidden,false);hidden.Clear();}
-        void Restore(){CancelPick();if(doc==null)return;Check();Reveal();doc.CurrentSelection.CopyFrom(originalSelection);doc.CurrentViewpoint.CopyFrom(originalView);CableOverlay.Lines.Clear();CableOverlay.Start=CableOverlay.End=null;doc.ActiveView.RequestDelayedRedraw(ViewRedrawRequests.All);}
+        void Restore(){CancelPick();if(doc==null)return;Check();Reveal();doc.CurrentSelection.CopyFrom(originalSelection);doc.CurrentViewpoint.CopyFrom(originalView);ClearConnectivityDiagnostics();CableOverlay.Lines.Clear();CableOverlay.Start=CableOverlay.End=null;doc.ActiveView.RequestDelayedRedraw(ViewRedrawRequests.All);}
         protected override void OnFormClosed(FormClosedEventArgs e){try{Restore();}catch(Exception ex){Debug.WriteLine(ex);}CableOverlay.Document=null;if(originalView!=null)originalView.Dispose();if(originalSelection!=null)originalSelection.Dispose();base.OnFormClosed(e);}
         protected override void Dispose(bool disposing){base.Dispose(disposing);if(disposing)resultFont.Dispose();}
     }
