@@ -128,13 +128,15 @@ namespace TrayRouteExperiment
             if (network == null || string.IsNullOrEmpty(reportPath)) return;
             var directory = Path.GetDirectoryName(Path.GetFullPath(reportPath)); Directory.CreateDirectory(directory);
             File.WriteAllText(reportPath, new JavaScriptSerializer { MaxJsonLength = 50000000 }.Serialize(new {
-                model = doc.FileName, definition = "Port / Junction / Edge graph; 3D internal centerlines; small physical connection gaps",
+                model = doc.FileName, definition = "Port / Junction / Edge graph; physical components first; 3D review-only VirtualConnector",
                 start, finish, result = route, picked3DPoints = pickedPoints, error,
                 recognized = network.Recognized, rejected = network.Rejected, incomplete = network.Incomplete,
                 scan = new { network.ScanNodeCount, network.ScanCandidateCount, network.ScanElapsedSeconds },
                 settings = new { network.Graph.PhysicalTolerance, network.Graph.GapBridgeMaxDistance,
-                    network.Graph.GapBridgeWidthAxisTolerance, network.Graph.GapBridgeHeightAxisTolerance, network.Graph.GapBridgeSizeTolerance },
+                    network.Graph.GapBridgeWidthAxisTolerance, network.Graph.GapBridgeHeightAxisTolerance, network.Graph.GapBridgeSizeTolerance, network.Graph.VirtualConnectorMaxDistance },
                 graphNodes = network.Graph.GraphNodes, graphEdges = network.Graph.GraphEdges,
+                physicalComponents = network.Graph.PhysicalPieceComponents, physicalComponentCount = network.Graph.PhysicalComponentCount,
+                virtualConnectorCandidates = network.Graph.VirtualConnectorCandidates,
                 ambiguities = network.Graph.Ambiguities, manualPassabilityVerified = false, manualLengthVerified = false
             }));
         }

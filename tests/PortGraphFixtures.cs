@@ -170,6 +170,30 @@ public static class PortGraphFixtures
             expectedRouteLength=2.03,expectedContributions=new[]{1.0,1.0},expectedGapCount=1,expectedGapLength=.03,items=parts},new JsonSerializerOptions{IncludeFields=true,WriteIndented=true}));
         File.WriteAllText(Path.Combine(directory,"gap-bridge-fixture.ifc"),Ifc(parts),Encoding.ASCII);
     }
+    public static void WriteVirtualConnectorArtifacts(string directory)
+    {
+        Directory.CreateDirectory(directory);var origin=new Vec(8,5,3);var direction=Unit(new Vec(1,2,3));var delta=new Vec(.25,-.1,.3);
+        var portParts=new List<MeshFixture>{
+            new MeshFixture{Name="Fixture-Virtual-Port-A",RunName="Virtual-Port-Run-A",Description="Slope",Size="200 x 100 mm",Mesh=Straight(origin-direction,origin,.2),ExpectedWholeLength=1},
+            new MeshFixture{Name="Fixture-Virtual-Port-B",RunName="Virtual-Port-Run-B",Description="Slope",Size="400 x 100 mm",Mesh=Straight(origin+delta,origin+delta+direction),ExpectedWholeLength=1}
+        };
+        var json=new JsonSerializerOptions{IncludeFields=true,WriteIndented=true};
+        File.WriteAllText(Path.Combine(directory,"virtual-port-fixture.json"),JsonSerializer.Serialize(new{synthetic=true,units="metres",
+            startName=portParts[0].Name,finishName=portParts[1].Name,start=origin-direction,finish=origin+delta+direction,
+            expectedRouteLength=2+Math.Sqrt(.1625),expectedContributions=new[]{1.0,1.0},expectedVirtualCount=1,expectedVirtualLength=Math.Sqrt(.1625),expectedVirtualKind="PortToPort3D",items=portParts},json));
+        File.WriteAllText(Path.Combine(directory,"virtual-port-fixture.ifc"),Ifc(portParts),Encoding.ASCII);
+
+        origin=new Vec(15,25,4);var q=origin+direction*.7;delta=Unit(direction.Cross(new Vec(.6,-.3,.1)))*.35;
+        var segmentParts=new List<MeshFixture>{
+            new MeshFixture{Name="Fixture-Virtual-Branch",RunName="Virtual-Branch-Run",Description="Slope",Size="200 x 100 mm",Mesh=Straight(q-delta-Unit(delta)*2,q-delta,.2),ExpectedWholeLength=2},
+            new MeshFixture{Name="Fixture-Virtual-Main",RunName="Virtual-Main-Run",Description="Slope",Size="400 x 100 mm",Mesh=Straight(origin-direction*3,origin+direction*5),ExpectedWholeLength=8}
+        };
+        File.WriteAllText(Path.Combine(directory,"virtual-segment-fixture.json"),JsonSerializer.Serialize(new{synthetic=true,units="metres",
+            startName=segmentParts[0].Name,finishName=segmentParts[1].Name,start=q-delta-Unit(delta)*2,finish=origin+direction*5,
+            expectedRouteLength=6.65,expectedContributions=new[]{2.0,4.3},expectedVirtualCount=1,expectedVirtualLength=.35,
+            expectedVirtualKind="PortToSegment3D",expectedTargetStation=3.7,expectedTargetPoint=q,items=segmentParts},json));
+        File.WriteAllText(Path.Combine(directory,"virtual-segment-fixture.ifc"),Ifc(segmentParts),Encoding.ASCII);
+    }
     static string Ifc(List<MeshFixture> fixtures)
     {
         var e=new List<string>();Func<string,string> add=body=>{e.Add("#"+(e.Count+1)+"="+body+";");return "#"+e.Count;};

@@ -1,6 +1,6 @@
 # 直线桥架 Port-to-Port 断截桥接
 
-本阶段只桥接两个直线桥架（包含垂直或空间倾斜直段）的空闲端口。现有 Tee、branch-to-middle、弯头识别和物理连接规则不因 Gap 配置而放宽。
+严格 GapBridge 只桥接两个直线桥架（包含垂直或空间倾斜直段）的空闲端口。现有 Tee、branch-to-middle、弯头识别和物理连接规则不因 Gap 配置而放宽。
 
 ## 配置
 
@@ -34,7 +34,7 @@ var network = new CableNetwork(pieces, options: new CableNetworkOptions {
 
 GapBridgeEdge 的 Length 为两个 Port 世界坐标的实际距离，并计入总长度。它始终 RequiresReview=true；ReviewReason 包含 gap、横向偏差和竖向偏差。报告中的 GapBridgeCount、GapBridgeLength 分别记录本路径的桥接数量和实际桥接总长。
 
-Dijkstra 按 `(GapBridgeEdge 数量, 实际总长度)` 排序，先选 Gap 较少的路径，再在 Gap 数量相同的路径中选长度较短的路径。总长度仍然是实际边长之和。严格模式 `Find(start, finish, false)` 排除 Gap 及其他待复核边。
+关闭 VirtualConnector 时，Dijkstra 按 `(GapBridgeEdge 数量, 实际总长度)` 排序，先选 Gap 较少的路径，再在 Gap 数量相同的路径中选长度较短的路径。开启独立的三维 VirtualConnector 后采用新阶段的三项代价，见 [VIRTUAL_CONNECTOR.md](VIRTUAL_CONNECTOR.md)。总长度仍然是实际边长之和。严格模式 `Find(start, finish, false)` 排除 Gap 及其他待复核边。
 
 ## 验证
 

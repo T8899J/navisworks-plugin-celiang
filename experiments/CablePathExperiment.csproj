@@ -1,6 +1,6 @@
 <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" />
-  <PropertyGroup><OutputType>Library</OutputType><TargetFrameworkVersion>v4.8</TargetFrameworkVersion><PlatformTarget>x64</PlatformTarget><LangVersion>7.3</LangVersion><OutputPath>bin\CablePathV10\</OutputPath><IntermediateOutputPath>obj\CablePathV10\</IntermediateOutputPath><AssemblyName>JiePinPai.CablePathExperimentV10</AssemblyName></PropertyGroup>
+  <PropertyGroup><OutputType>Library</OutputType><TargetFrameworkVersion>v4.8</TargetFrameworkVersion><PlatformTarget>x64</PlatformTarget><LangVersion>7.3</LangVersion><OutputPath>bin\CablePathV11\</OutputPath><IntermediateOutputPath>obj\CablePathV11\</IntermediateOutputPath><AssemblyName>JiePinPai.CablePathExperimentV11</AssemblyName></PropertyGroup>
   <ItemGroup>
     <Reference Include="System" /><Reference Include="System.Core" /><Reference Include="System.Web.Extensions" /><Reference Include="System.Drawing" /><Reference Include="System.Windows.Forms" />
     <Reference Include="Autodesk.Navisworks.Api"><HintPath>$(NavisworksInstallDir)\Autodesk.Navisworks.Api.dll</HintPath><Private>False</Private></Reference>
@@ -8,7 +8,7 @@
     <Reference Include="Autodesk.Navisworks.Interop.ComApi"><HintPath>$(NavisworksInstallDir)\Autodesk.Navisworks.Interop.ComApi.dll</HintPath><Private>False</Private></Reference>
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
     <Content Include="..\cable-path-settings.json"><Link>cable-path-settings.json</Link><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></Content>
-    <Compile Include="CablePathExperiment.cs" /><Compile Include="CableNetwork.cs" /><Compile Include="PortTopology.cs" /><Compile Include="FittingGeometry.cs" /><Compile Include="BendPolyline.cs" /><Compile Include="HostNetwork.cs" /><Compile Include="CableDetails.cs" /><Compile Include="CableHostProbe.cs" /><Compile Include="RouteGeometry.cs" /><Compile Include="..\GeometryReader.cs" /><Compile Include="..\Core\*.cs" />
+    <Compile Include="CablePathExperiment.cs" /><Compile Include="CableNetwork.cs" /><Compile Include="VirtualConnectors.cs" /><Compile Include="PortTopology.cs" /><Compile Include="FittingGeometry.cs" /><Compile Include="BendPolyline.cs" /><Compile Include="HostNetwork.cs" /><Compile Include="CableDetails.cs" /><Compile Include="CableHostProbe.cs" /><Compile Include="RouteGeometry.cs" /><Compile Include="..\GeometryReader.cs" /><Compile Include="..\Core\*.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

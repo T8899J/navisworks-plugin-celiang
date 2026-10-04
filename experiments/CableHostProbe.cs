@@ -9,7 +9,7 @@ using NavApp = Autodesk.Navisworks.Api.Application;
 
 namespace TrayRouteExperiment
 {
-    [Plugin("CableGraphProbeV10", "JPPM")]
+    [Plugin("CableGraphProbeV11", "JPPM")]
     public sealed class CableHostProbe : AddInPlugin
     {
         static Vec Point(string value)
@@ -41,8 +41,10 @@ namespace TrayRouteExperiment
                     recognized = network.Recognized, rejected = network.Rejected, incomplete = network.Incomplete,
                     scan = new { network.ScanNodeCount, network.ScanCandidateCount, network.ScanElapsedSeconds },
                     settings = new { network.Graph.PhysicalTolerance, network.Graph.GapBridgeMaxDistance,
-                        network.Graph.GapBridgeWidthAxisTolerance, network.Graph.GapBridgeHeightAxisTolerance, network.Graph.GapBridgeSizeTolerance },
+                        network.Graph.GapBridgeWidthAxisTolerance, network.Graph.GapBridgeHeightAxisTolerance, network.Graph.GapBridgeSizeTolerance, network.Graph.VirtualConnectorMaxDistance },
                     parts = network.Graph.Pieces.Select(p => p.Shape), graphNodes = network.Graph.GraphNodes,
+                    physicalComponents = network.Graph.PhysicalPieceComponents, physicalComponentCount = network.Graph.PhysicalComponentCount,
+                    virtualConnectorCandidates = network.Graph.VirtualConnectorCandidates,
                     graphEdges = network.Graph.GraphEdges, ambiguities = network.Graph.Ambiguities });
                 return 0;
             }

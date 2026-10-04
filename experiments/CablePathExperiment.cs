@@ -19,7 +19,7 @@ using View=Autodesk.Navisworks.Api.View;
 
 namespace TrayRouteExperiment
 {
-    [Plugin("CablePathExperimentV10","JPPM",DisplayName="电缆路径实验",ToolTip="从分支到主路，按点击位置计算路径")]
+    [Plugin("CablePathExperimentV11","JPPM",DisplayName="电缆路径实验",ToolTip="从分支到主路，按点击位置计算路径")]
     [AddInPlugin(AddInLocation.AddIn)]
     public sealed class CableEntry:AddInPlugin
     {
@@ -32,7 +32,7 @@ namespace TrayRouteExperiment
             else if(args.Length>=3)form.Demo(args[0],args[1],args[2]);return 0;
         }
     }
-    [Plugin("CablePointPickerV10","JPPM")]
+    [Plugin("CablePointPickerV11","JPPM")]
     public sealed class CablePicker:ToolPlugin
     {
         internal static CableForm Target;
@@ -47,7 +47,7 @@ namespace TrayRouteExperiment
         public override bool KeyDown(View view,KeyModifiers modifiers,ushort key,double timeOffset)
         {if(key!=27||Target==null)return false;var f=Target;f.BeginInvoke(new Action(f.CancelPick));return true;}
     }
-    [Plugin("CablePathOverlayV10","JPPM")]
+    [Plugin("CablePathOverlayV11","JPPM")]
     public sealed class CableOverlay:RenderPlugin
     {
         internal static Document Document;
@@ -111,13 +111,13 @@ namespace TrayRouteExperiment
         void EnsureNetwork(ModelItem item)
         {
             Remember();if(network!=null){if(!network.Valid())throw new InvalidOperationException("模型已变化");return;}
-            Reveal();caption.Text="正在读取桥架连接…";number.Text="—";Refresh();network=HostNetwork.Read(doc,item);
+            Reveal();caption.Text="正在读取桥架连接…";number.Text="—";Refresh();network=HostNetwork.Read(doc,item);SaveReport(null);
         }
         void BeginPick(bool first)
         {
             Remember();if(!first&&start==null)throw new InvalidOperationException("请先选择起点");
             CancelPick();pickingStart=first;priorTool=doc.Tool.Value;priorCustom=doc.Tool.CustomToolPluginId;
-            CablePicker.Target=this;var record=(ToolPluginRecord)NavApp.Plugins.FindPlugin("CablePointPickerV10.JPPM");doc.Tool.SetCustomToolPlugin(record.LoadPlugin());
+            CablePicker.Target=this;var record=(ToolPluginRecord)NavApp.Plugins.FindPlugin("CablePointPickerV11.JPPM");doc.Tool.SetCustomToolPlugin(record.LoadPlugin());
             caption.Text=first?"请在桥架上点击起点":"请在桥架上点击终点";hint.Text="Esc 取消选择";number.Text="—";
         }
         public void CancelPick()
@@ -143,7 +143,7 @@ namespace TrayRouteExperiment
         void SetOverlay()
         {
             CableOverlay.Document=doc;CableOverlay.Root=originalRoot;CableOverlay.Scale=UnitConversion.ScaleFactor(doc.Units,Units.Meters);CableOverlay.Start=start==null?(Vec?)null:start.Point;CableOverlay.End=finish==null?(Vec?)null:finish.Point;
-            ((RenderPluginRecord)NavApp.Plugins.FindPlugin("CablePathOverlayV10.JPPM")).LoadPlugin();doc.ActiveView.RequestDelayedRedraw(ViewRedrawRequests.All);
+            ((RenderPluginRecord)NavApp.Plugins.FindPlugin("CablePathOverlayV11.JPPM")).LoadPlugin();doc.ActiveView.RequestDelayedRedraw(ViewRedrawRequests.All);
         }
         public void Demo(string report,string branchName,string mainName)
         {
@@ -186,6 +186,7 @@ namespace TrayRouteExperiment
             double fittingLength=result.FittingContributions.Sum(f=>f.Length);
             string fittingSummary=result.FittingContributions.Count==0?"本段未经过配件":
                 "已含配件 "+fittingLength.ToString("0.000")+" m · "+result.FittingContributions.Count+" 件";
+            if(result.VirtualConnectorCount>0)fittingSummary=(result.FittingContributions.Count==0?"":fittingSummary+" · ")+"虚拟连接 "+result.VirtualConnectorTotalLength.ToString("0.000")+" m";
             hint.Text=fittingSummary+(network.Incomplete?" · 模型未完整提取":result.RequiresReview?" · 待复核":"");
             UpdateDetails(result);SaveReport(result);
         }

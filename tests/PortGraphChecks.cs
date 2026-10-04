@@ -194,7 +194,7 @@ static partial class PortGraphChecks
             Directory.CreateDirectory(artifactDirectory);File.WriteAllText(Path.Combine(artifactDirectory,"port-graph-checks.json"),JsonSerializer.Serialize(new{synthetic=true,checks=count,expectedLength=PortGraphFixtures.ExpectedRouteLength,actualLength=route.Length,route,start,finish,graphNodes=n.GraphNodes,graphEdges=n.GraphEdges,fixtures=fixtures.Select(f=>new{f.Name,f.RunName,f.Description,f.Size})},new JsonSerializerOptions{IncludeFields=true,WriteIndented=true}));
         }
     }
-    static void ReplayCaptured(string capturePath,string queryPath,string output)
+    static void ReplayCaptured(string capturePath,string queryPath,string output,bool virtualConnectors=false)
     {
         using var capture=JsonDocument.Parse(File.ReadAllText(capturePath));
         using var query=JsonDocument.Parse(File.ReadAllText(queryPath));
@@ -212,7 +212,8 @@ static partial class PortGraphChecks
             }
             catch(InvalidOperationException e){failures.Add(name+": "+e.Message);Console.WriteLine(failures.Last());}
         }
-        var network=new CableNetwork(pieces);CableRoute route=null;string error=null;
+        var settings=virtualConnectors?new CableNetworkOptions{GapBridgeMaxDistance=.05,VirtualConnectorMaxDistance=.5}:null;
+        var network=new CableNetwork(pieces,options:settings);CableRoute route=null;string error=null;
         Func<string,CableLocation> location=key=>{
             var saved=query.RootElement.GetProperty(key);
             var metadata=query.RootElement.GetProperty("recognized")[saved.GetProperty("Piece").GetInt32()];
@@ -221,11 +222,13 @@ static partial class PortGraphChecks
             return network.Project(i,JsonSerializer.Deserialize<Vec>(saved.GetProperty("Point").GetRawText(),options));
         };
         try{route=network.Find(location("start"),location("finish"));}catch(InvalidOperationException e){error=e.Message;}
-        File.WriteAllText(output,JsonSerializer.Serialize(new{capturePath,queryPath,parts=pieces.Select(p=>p.Shape),failures,result=route,error,joins=network.Joins,ambiguities=network.Ambiguities},options));
+        File.WriteAllText(output,JsonSerializer.Serialize(new{capturePath,queryPath,settings,parts=pieces.Select(p=>p.Shape),failures,result=route,error,joins=network.Joins,
+            physicalComponents=network.PhysicalPieceComponents,virtualConnectorCandidates=network.VirtualConnectorCandidates,ambiguities=network.Ambiguities},options));
         Check(failures.Count==0,"all captured selected components reconstruct");
         Check(route!=null,"captured user start and finish have a continuous path");
         Near(network.Find(location("finish"),location("start")).Length,route.Length,"captured route reverses with the same length");
         Near(route.Steps.Sum(s=>s.Length),route.Length,"captured route total equals traversed edges");
+        if(virtualConnectors){Check(network.PhysicalComponentCount==1,"captured real geometry is one physical component before virtual search");Check(route.VirtualConnectorCount==0&&!network.GraphEdges.Any(e=>e.Kind==CableEdgeKind.VirtualConnectorEdge),"virtual mode creates no shortcut in the captured real component");}
         Console.WriteLine("CAPTURED RESULT: "+route.Length.ToString("F9")+" m; "+route.Pieces.Length+" parts; requires review: "+route.RequiresReview);
     }
     static void Main(string[] args)
@@ -234,8 +237,8 @@ static partial class PortGraphChecks
     }
     static void Run(string[] args)
     {
-        if(args.Length==4&&args[0]=="--replay-capture"){try{ReplayCaptured(args[1],args[2],args[3]);}catch(Exception e){Console.Error.WriteLine(e.Message);Environment.ExitCode=1;}return;}
+        if(args.Length==4&&(args[0]=="--replay-capture"||args[0]=="--replay-capture-virtual")){try{ReplayCaptured(args[1],args[2],args[3],args[0]=="--replay-capture-virtual");}catch(Exception e){Console.Error.WriteLine(e.Message);Environment.ExitCode=1;}return;}
         if(args.Length>0&&args[0]=="--fixture-only"){PortGraphFixtures.WriteArtifacts(args.Length>1?args[1]:"artifacts");Console.WriteLine("Synthetic IFC, mesh manifest and expected lengths written.");return;}
-        string artifacts=args.Length>0?args[0]:null;PureGraph();ConnectivityRegressions();GeometryCases();FoldedAndSleeveCases();GapBridgeCases();FullMeshRoute(artifacts);if(artifacts!=null){PortGraphFixtures.WriteArtifacts(artifacts);PortGraphFixtures.WriteGapBridgeArtifacts(artifacts);}Console.WriteLine("RESULT: "+count+" port graph checks passed.");
+        string artifacts=args.Length>0?args[0]:null;PureGraph();ConnectivityRegressions();GeometryCases();FoldedAndSleeveCases();GapBridgeCases();VirtualConnectorCases(artifacts);FullMeshRoute(artifacts);if(artifacts!=null){PortGraphFixtures.WriteArtifacts(artifacts);PortGraphFixtures.WriteGapBridgeArtifacts(artifacts);PortGraphFixtures.WriteVirtualConnectorArtifacts(artifacts);}Console.WriteLine("RESULT: "+count+" port graph checks passed.");
     }
 }

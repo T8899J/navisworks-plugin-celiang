@@ -4,7 +4,8 @@ using JiePinPai.TrayMeasurement.Core;
 namespace TrayRouteExperiment
 {
     public enum CableNodeKind { Port, VirtualJunction, FittingInternalJunction }
-    public enum CableEdgeKind { InternalEdge, ConnectionEdge, GapBridgeEdge }
+    public enum CableEdgeKind { InternalEdge, ConnectionEdge, GapBridgeEdge, VirtualConnectorEdge }
+    public enum VirtualConnectorKind { PortToPort3D, PortToSegment3D }
 
     public sealed class CableNetworkOptions
     {
@@ -13,6 +14,23 @@ namespace TrayRouteExperiment
         public double GapBridgeWidthAxisTolerance { get; set; } = .002;
         public double GapBridgeHeightAxisTolerance { get; set; } = .002;
         public double GapBridgeSizeTolerance { get; set; } = .003;
+        // Independent search radius, not a physical tolerance. Zero preserves legacy callers.
+        public double VirtualConnectorMaxDistance { get; set; }
+    }
+
+    public sealed class VirtualConnectorCandidate
+    {
+        public VirtualConnectorKind Kind;
+        public string KindName { get { return Kind.ToString(); } }
+        public int SourcePiece, SourcePort, TargetPiece, TargetPort, TargetEdge;
+        public string SourcePieceId, SourceName, SourceRunName, SourcePortId;
+        public string TargetPieceId, TargetName, TargetRunName, TargetPortId, TargetEdgeId;
+        public Vec SourcePoint, TargetPoint;
+        public double TargetStation, Distance3D, DeltaX, DeltaY, DeltaZ;
+        public double SourceWidth, SourceHeight, TargetWidth, TargetHeight, WidthDifference, HeightDifference;
+        public double? SourceDirectionAngleDegrees, TargetDirectionAngleDegrees, PortFacingAngleDegrees, TargetTangentAngleDegrees;
+        public int SourcePhysicalComponent, TargetPhysicalComponent, CandidateCount, TargetPortCandidateCount;
+        public string Status, Reason;
     }
 
     public sealed class CableGraphNode
